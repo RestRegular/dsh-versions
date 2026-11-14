@@ -3,3 +3,6 @@ node_modules/
 .dsh/
 *.log
 .dsh-probe/
+
+# Local push credential helper (reads devcred-injected GITHUB_TOKEN)
+.git-credential.ps1
