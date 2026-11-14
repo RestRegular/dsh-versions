@@ -36,6 +36,16 @@
       const PANEL_ID = 'versions';
       /** 下载进度轮询间隔。 */
       const PROGRESS_MS = 900;
+      /** 没有下载在跑时的低频心跳（用来发现别的窗口/Agent 工具发起的下载）。 */
+      const IDLE_PROGRESS_MS = 3_000;
+      /** 「删除」二次确认几秒内没再点就自动收回。 */
+      const PURGE_CONFIRM_MS = 4_000;
+      /** toast 默认停留时长。 */
+      const TOAST_MS = 3_200;
+      /** 错误 toast 停留更久一点，够看清原因。 */
+      const TOAST_ERROR_MS = 6_500;
+      /** 重要提示（例如开始切换版本）停留更久。 */
+      const TOAST_LONG_MS = 8_500;
 
       // ------------------------------------------------------------------
       // 文案
@@ -95,7 +105,9 @@
           'action.switchSame': '这就是当前运行的版本',
           'action.purge': '删除下载',
           'action.purged': '已删除 {version} 的安装包，释放 {size}',
-          'action.purgeConfirm': '再点一次确认删除 {version} 的安装包',
+          'action.purgeConfirm': '再点一次确认删除 {version}',
+          'action.purgeConfirmHint': '再点一次确认删除 {version}，{seconds} 秒后自动取消',
+          'action.purgeCancelled': '已取消删除',
           'action.cancelSwitch': '取消切换',
           'action.switchCancelled': '已取消待切换标记',
           'switch.pending': '待切换：{version} — 后台任务正在关闭 DSH 并静默安装，装完会自动重新打开',
@@ -103,6 +115,11 @@
           'switch.applied': '上次切换已完成：{version}（{date}）',
           'download.preparing': '准备下载…',
           'download.speed': '{received} / {total} · {speed}',
+          'download.progressTitle': '正在下载 {version}',
+          'download.progressTitleUnknown': '正在下载安装包',
+          'download.done': '安装包下载完成，可以切换了',
+          'toast.dismiss': '关闭提示',
+          'action.downloadBusy': '有下载任务在进行中',
           'lang.zh': '中文',
           'lang.en': 'English',
           'downloads.title': '已下载',
@@ -171,7 +188,9 @@
           'action.switchSame': 'This is the version you are running',
           'action.purge': 'Delete download',
           'action.purged': 'Deleted the {version} installer, freed {size}',
-          'action.purgeConfirm': 'Click again to delete the {version} installer',
+          'action.purgeConfirm': 'Click again to delete {version}',
+          'action.purgeConfirmHint': 'Click again to delete {version}; cancelling in {seconds}s',
+          'action.purgeCancelled': 'Delete cancelled',
           'action.cancelSwitch': 'Cancel switch',
           'action.switchCancelled': 'Pending switch cleared',
           'switch.pending': 'Pending switch: {version} — a background task is closing DSH, installing silently, then reopening it',
@@ -179,6 +198,11 @@
           'switch.applied': 'Last switch completed: {version} ({date})',
           'download.preparing': 'Preparing download…',
           'download.speed': '{received} / {total} · {speed}',
+          'download.progressTitle': 'Downloading {version}',
+          'download.progressTitleUnknown': 'Downloading installer',
+          'download.done': 'Installer downloaded — ready to switch',
+          'toast.dismiss': 'Dismiss',
+          'action.downloadBusy': 'A download is already running',
           'lang.zh': '中文',
           'lang.en': 'English',
           'downloads.title': 'Downloaded',
@@ -461,6 +485,42 @@
 .dv-progress-fill { height: 100%; border-radius: 2px; background: var(--dsw-alias-brand-primary); transition: width .25s; }
 .dv-progress-fill-indeterminate { width: 40% !important; animation: dv-slide 1.1s ease-in-out infinite; }
 @keyframes dv-slide { 0% { margin-left: -40%; } 100% { margin-left: 100%; } }
+/* 全局下载进度：不跟当前选中版本绑定，切视图/换版本都还在。 */
+.dv-dl-global {
+  display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
+  padding: 8px 10px; border-radius: 8px;
+  border: 1px solid var(--dsw-alias-border-l1); background: var(--dsw-alias-bg-layer-1);
+}
+.dv-dl-global-main { flex: 1 1 220px; min-width: 0; display: flex; flex-direction: column; gap: 5px; }
+.dv-dl-global-title { font-size: 12px; display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap; }
+.dv-dl-global-version { font-weight: 600; font-variant-numeric: tabular-nums; }
+.dv-dl-global-meta { font-size: 11px; color: var(--dsw-alias-label-secondary); font-variant-numeric: tabular-nums; }
+.dv-dl-global[data-state="failed"] { border-color: var(--dsw-alias-state-error-primary); }
+/* toast */
+.dv-toasts {
+  position: fixed; right: 20px; bottom: 20px; z-index: 60;
+  display: flex; flex-direction: column; gap: 8px; align-items: flex-end;
+  pointer-events: none; max-width: min(420px, calc(100vw - 40px));
+}
+.dv-toast {
+  pointer-events: auto; display: flex; align-items: flex-start; gap: 8px;
+  padding: 9px 11px; border-radius: 9px; font-size: 12px; line-height: 1.55;
+  border: 1px solid var(--dsw-alias-border-l1); background: var(--dsw-alias-bg-layer-1);
+  color: var(--dsw-alias-label-primary);
+  box-shadow: 0 6px 20px rgb(0 0 0 / 12%);
+  animation: dv-toast-in .16s ease-out;
+}
+.dv-toast-error { border-color: var(--dsw-alias-state-error-primary); color: var(--dsw-alias-state-error-primary); }
+.dv-toast-warn { border-color: var(--dsw-alias-state-warn-primary); }
+.dv-toast-ok { border-color: var(--dsw-alias-state-success-primary); }
+.dv-toast-text { min-width: 0; word-break: break-word; }
+.dv-toast-close {
+  appearance: none; border: 0; background: transparent; cursor: pointer; font: inherit;
+  flex: 0 0 auto; padding: 0 2px; line-height: 1.2; opacity: .55;
+  color: inherit;
+}
+.dv-toast-close:hover { opacity: 1; }
+@keyframes dv-toast-in { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
 .dv-section { display: flex; flex-direction: column; gap: 5px; }
 .dv-section-title {
   font-size: 12px; font-weight: 600; letter-spacing: .02em;
@@ -584,7 +644,7 @@
       // ------------------------------------------------------------------
       // 组件：已下载列表
       // ------------------------------------------------------------------
-      function DownloadsList({ view, currentVersion, onSwitch, onPurge, onCancelSwitch, switchBusy, purgeArm }) {
+      function DownloadsList({ view, currentVersion, onSwitch, onPurge, onCancelSwitch, switchBusy, purgeArm, purgeLeft }) {
         const t = translateCurrent;
         const items = Array.isArray(view?.items) ? view.items : [];
         const rows = [];
@@ -632,7 +692,9 @@
               className: purgeArm === item.version ? 'dv-btn dv-btn-danger' : 'dv-btn dv-btn-ghost',
               onClick: () => { void onPurge(item.version); },
               title: t('action.purge'),
-            }, purgeArm === item.version ? t('action.purgeConfirm', { version: item.version }) : t('downloads.remove')));
+            }, purgeArm === item.version
+              ? t('action.purgeConfirmHint', { version: item.version, seconds: purgeLeft ?? Math.round(PURGE_CONFIRM_MS / 1000) })
+              : t('downloads.remove')));
 
             return h('div', { key: item.version, className: 'dv-dl-row' },
               h('div', { className: 'dv-dl-main' },
@@ -683,15 +745,62 @@
         const [busy, setBusy] = useState(undefined);
         const [downloaded, setDownloaded] = useState({});
         const [progress, setProgress] = useState(undefined);
-        const [notice, setNotice] = useState(undefined);
+        // 这个位置以前是 notice（顶部横幅）。现在放 toast 队列；旧快照注入的
+        // undefined 按空数组处理，保证 hook 顺序与既有测试不变。
+        const [toasts, setToasts] = useState([]);
         // 追加在最后，保持前面 hook 顺序不变（冒烟测试按位置注入快照）。
         const [view, setView] = useState('versions');
         const [downloads, setDownloads] = useState(undefined);
         const [switchBusy, setSwitchBusy] = useState(undefined);
         const [purgeArm, setPurgeArm] = useState(undefined);
+        const [purgeLeft, setPurgeLeft] = useState(0);
         const alive = useRef(true);
+        const toastSeq = useRef(0);
+        const toastTimers = useRef(new Map());
+        /** 已经提示过「下载完成」的版本，避免轮询和发起方各弹一条。 */
+        const doneNotified = useRef(undefined);
 
-        useEffect(() => () => { alive.current = false; }, []);
+        useEffect(() => () => {
+          alive.current = false;
+          for (const timer of toastTimers.current.values()) clearTimeout(timer);
+          toastTimers.current.clear();
+        }, []);
+
+        /**
+         * 弹一条 toast（几秒后自己消失，也可以点掉）。
+         * @param {'info'|'error'|'ok'|'warn'} kind 类型。
+         * @param {string} text 文案。
+         * @param {number} [ms] 停留时长。
+         * @returns {void}
+         */
+        const pushToast = useCallback((kind, text, ms) => {
+          toastSeq.current += 1;
+          const id = toastSeq.current;
+          const ttl = typeof ms === 'number'
+            ? ms
+            : kind === 'error' ? TOAST_ERROR_MS : TOAST_MS;
+          setToasts((previous) => {
+            const list = Array.isArray(previous) ? previous : [];
+            return [...list, { id, kind, text }].slice(-4);
+          });
+          const timer = setTimeout(() => {
+            setToasts((previous) => (Array.isArray(previous) ? previous.filter((item) => item.id !== id) : []));
+            toastTimers.current.delete(id);
+          }, ttl);
+          timer?.unref?.();
+          toastTimers.current.set(id, timer);
+        }, []);
+
+        const dismissToast = useCallback((id) => {
+          const timer = toastTimers.current.get(id);
+          if (timer !== undefined) {
+            clearTimeout(timer);
+            toastTimers.current.delete(id);
+          }
+          setToasts((previous) => (Array.isArray(previous) ? previous.filter((item) => item.id !== id) : []));
+        }, []);
+
+        const toastList = Array.isArray(toasts) ? toasts : [];
 
         const load = useCallback(async (force) => {
           setLoading(true);
@@ -759,25 +868,49 @@
           };
         }, [selected]);
 
-        // 下载中轮询进度。
+        // 下载进度是宿主侧的全局状态，不是「这个面板此刻的忙」：换版本、切视图、
+        // 甚至关掉面板再回来，下载都还在跑，所以这里按宿主回报的 active 决定节奏，
+        // 而不是只依赖本地 busy。
         useEffect(() => {
-          if (busy === undefined) return undefined;
           let cancelled = false;
+          let timer;
+          let wasActive;
           const tick = async () => {
+            let payload;
             try {
-              const payload = await apiGet('progress');
-              if (!cancelled) setProgress(payload);
+              payload = await apiGet('progress');
             } catch {
-              /* 轮询失败无所谓，主请求还在跑 */
+              payload = undefined;
             }
+            if (cancelled) return;
+            let running = busy !== undefined;
+            if (payload !== undefined) {
+              setProgress(payload);
+              const active = payload.active === true;
+              // 刚跑完：刷新已下载清单；若是别处（另一个窗口 / Agent 工具）发起的
+              // 下载，本地 busy 一直是空的，就补一条 toast 告诉用户下好了。
+              if (wasActive === true && active !== true) {
+                void loadDownloads();
+                // 只有「别处发起」的下载（本地 busy 为空）才在这里补提示，
+                // 本地发起的由 onDownload 自己报，别弹两条。
+                const finished = payload.version ?? busy;
+                if (busy === undefined && payload.state === 'done' && finished !== doneNotified.current) {
+                  doneNotified.current = finished;
+                  pushToast('ok', t('download.done'));
+                }
+              }
+              wasActive = active;
+              // 本地请求还没返回时（busy 还在）也保持快节奏，别等 3 秒。
+              running = active || busy !== undefined;
+            }
+            timer = setTimeout(tick, running ? PROGRESS_MS : IDLE_PROGRESS_MS);
           };
           void tick();
-          const timer = setInterval(tick, PROGRESS_MS);
           return () => {
             cancelled = true;
-            clearInterval(timer);
+            clearTimeout(timer);
           };
-        }, [busy]);
+        }, [busy, loadDownloads, pushToast, t]);
 
         const rows = useMemo(() => {
           const all = Array.isArray(data?.versions) ? data.versions : [];
@@ -796,7 +929,6 @@
         const onProbe = useCallback(async () => {
           if (probing) return;
           setProbing(true);
-          setNotice(undefined);
           try {
             const targets = rows.slice(0, 24).map((row) => row.version);
             const payload = await apiPost({ op: 'probe', versions: targets });
@@ -817,25 +949,29 @@
               };
             });
           } catch (caught) {
-            setNotice({ kind: 'error', text: String(caught?.message ?? caught) });
+            pushToast('error', String(caught?.message ?? caught));
           } finally {
             setProbing(false);
           }
-        }, [probing, rows]);
+        }, [probing, rows, pushToast]);
 
         const onDownload = useCallback(async (version) => {
+          // 宿主同一时刻只允许一个下载；别的窗口/Agent 工具正在下就别硬上。
+          if (progress?.active === true && progress.version !== version) {
+            pushToast('warn', t('action.downloadBusy'));
+            return;
+          }
           setBusy(version);
           setProgress(undefined);
-          setNotice(undefined);
           try {
             const payload = await apiPost({ op: 'download', version });
             if (!alive.current) return;
             setDownloaded((previous) => ({ ...previous, [version]: payload }));
-            setNotice({ kind: 'info', text: t('action.downloadedAt', { size: payload.sizeText }) });
+            pushToast('ok', t('action.downloadedAt', { size: payload.sizeText }));
             void loadDownloads();
           } catch (caught) {
             if (alive.current) {
-              setNotice({ kind: 'error', text: t('action.downloadFailed', { message: String(caught?.message ?? caught) }) });
+              pushToast('error', t('action.downloadFailed', { message: String(caught?.message ?? caught) }));
             }
           } finally {
             if (alive.current) {
@@ -843,10 +979,9 @@
               setProgress(undefined);
             }
           }
-        }, [t, loadDownloads]);
+        }, [t, loadDownloads, progress, pushToast]);
 
         const onDiscard = useCallback(async (version) => {
-          setNotice(undefined);
           try {
             await apiPost({ op: 'discard', version });
             setDownloaded((previous) => {
@@ -854,63 +989,88 @@
               delete next[version];
               return next;
             });
-            setNotice({ kind: 'info', text: t('action.discarded') });
+            pushToast('ok', t('action.discarded'));
             void loadDownloads();
           } catch (caught) {
-            setNotice({ kind: 'error', text: String(caught?.message ?? caught) });
+            pushToast('error', String(caught?.message ?? caught));
           }
-        }, [t, loadDownloads]);
+        }, [t, loadDownloads, pushToast]);
 
         /** 切换版本：启动已下载安装包对应的官方安装程序。 */
         const onSwitch = useCallback(async (version) => {
           if (switchBusy !== undefined) return;
           setSwitchBusy(version);
-          setNotice(undefined);
           try {
             const payload = await apiPost({ op: 'switch', version });
             if (!alive.current) return;
-            setNotice({ kind: 'info', text: t('action.switched', { version }) });
+            pushToast('info', t('action.switched', { version }), TOAST_LONG_MS);
             setDownloads((previous) => (previous === undefined
               ? previous
               : { ...previous, pending: payload.pending ?? { version } }));
           } catch (caught) {
             if (alive.current) {
-              setNotice({ kind: 'error', text: t('action.switchFailed', { message: String(caught?.message ?? caught) }) });
+              pushToast('error', t('action.switchFailed', { message: String(caught?.message ?? caught) }));
             }
           } finally {
             if (alive.current) setSwitchBusy(undefined);
           }
-        }, [switchBusy, t]);
+        }, [switchBusy, t, pushToast]);
 
         /** 取消待切换标记。 */
         const onCancelSwitch = useCallback(async () => {
-          setNotice(undefined);
           try {
             await apiPost({ op: 'unswitch' });
             setDownloads((previous) => (previous === undefined ? previous : { ...previous, pending: undefined }));
-            setNotice({ kind: 'info', text: t('action.switchCancelled') });
+            pushToast('ok', t('action.switchCancelled'));
           } catch (caught) {
-            setNotice({ kind: 'error', text: String(caught?.message ?? caught) });
+            pushToast('error', String(caught?.message ?? caught));
           }
-        }, [t]);
+        }, [t, pushToast]);
 
-        /** 删除某个版本的全部下载（二次确认）。 */
+        /**
+         * 删除某个版本的全部下载（二次确认）。
+         *
+         * 第一次点击只是「上膛」，PURGE_CONFIRM_MS 内没再点就自动收回——
+         * 免得用户点了一下走开，回头又误触把 300 MB 删了。
+         */
         const onPurge = useCallback(async (version) => {
           if (purgeArm !== version) {
             setPurgeArm(version);
-            setNotice({ kind: 'info', text: t('action.purgeConfirm', { version }) });
             return;
           }
           setPurgeArm(undefined);
-          setNotice(undefined);
           try {
             const payload = await apiPost({ op: 'purge', version });
-            setNotice({ kind: 'info', text: t('action.purged', { version, size: payload.freedText }) });
+            pushToast('ok', t('action.purged', { version, size: payload.freedText }));
             await loadDownloads();
           } catch (caught) {
-            setNotice({ kind: 'error', text: String(caught?.message ?? caught) });
+            pushToast('error', String(caught?.message ?? caught));
           }
-        }, [purgeArm, t, loadDownloads]);
+        }, [purgeArm, t, loadDownloads, pushToast]);
+
+        // 「上膛」倒计时：到点自动收回，并给一条可见反馈。
+        useEffect(() => {
+          if (purgeArm === undefined) {
+            setPurgeLeft(0);
+            return undefined;
+          }
+          const seconds = Math.round(PURGE_CONFIRM_MS / 1000);
+          setPurgeLeft(seconds);
+          const startedAt = Date.now();
+          const ticker = setInterval(() => {
+            const left = seconds - Math.floor((Date.now() - startedAt) / 1000);
+            setPurgeLeft(left > 0 ? left : 0);
+          }, 500);
+          const timer = setTimeout(() => {
+            setPurgeArm(undefined);
+            setPurgeLeft(0);
+            pushToast('info', t('action.purgeCancelled'), TOAST_MS);
+          }, PURGE_CONFIRM_MS);
+          return () => {
+            clearInterval(ticker);
+            clearTimeout(timer);
+          };
+        }, [purgeArm, t, pushToast]);
 
         // ---------------- 头部 ----------------
         const currentVersion = data?.runtime?.version;
@@ -984,6 +1144,7 @@
         );
 
         // ---------------- 提示 ----------------
+        // 只剩「加载失败 / 缓存」这类需要常驻的横幅；操作反馈一律走 toast。
         const banners = [];
         if (error !== undefined) {
           banners.push(h('div', { key: 'err', className: 'dv-banner dv-banner-error' },
@@ -994,12 +1155,43 @@
         } else if (data?.stale === true) {
           banners.push(h('div', { key: 'stale', className: 'dv-banner dv-banner-warn' }, t('panel.stale')));
         }
-        if (notice !== undefined) {
-          banners.push(h('div', {
-            key: 'notice',
-            className: notice.kind === 'error' ? 'dv-banner dv-banner-error' : 'dv-banner',
-          }, notice.text));
-        }
+
+        // ---------------- 全局下载进度 ----------------
+        // 与「当前选中哪个版本 / 在哪个视图」完全无关：只要宿主那边有下载在跑就显示。
+        // 失败不在这里报（会跟发起方的 toast 重复），由调用方 toast 兜住。
+        const globalDownload = (() => {
+          const active = progress?.active === true;
+          if (active !== true) return null;
+          const version = progress?.version ?? busy;
+          const percent = progress?.percent;
+          const title = typeof version === 'string' && version !== ''
+            ? t('download.progressTitle', { version })
+            : t('download.progressTitleUnknown');
+          return h('div', { className: 'dv-dl-global', 'data-state': 'downloading' },
+            h('div', { className: 'dv-dl-global-main' },
+              h('div', { className: 'dv-dl-global-title' },
+                h('span', { className: 'dv-dl-global-version' }, title),
+                percent === undefined
+                  ? null
+                  : h('span', { className: 'dv-dl-global-meta' }, `${Math.round(percent)}%`),
+              ),
+              h('div', { className: 'dv-progress-bar' },
+                h('div', {
+                  className: percent === undefined ? 'dv-progress-fill dv-progress-fill-indeterminate' : 'dv-progress-fill',
+                  style: percent === undefined ? undefined : { width: `${Math.min(100, percent)}%` },
+                }),
+              ),
+              h('div', { className: 'dv-dl-global-meta' },
+                percent === undefined
+                  ? t('download.preparing')
+                  : t('download.speed', {
+                    received: progress?.receivedText ?? '—',
+                    total: progress?.sizeText ?? '—',
+                    speed: progress?.speedText ?? '—',
+                  })),
+            ),
+          );
+        })();
 
         // ---------------- 列表 ----------------
         let listBody;
@@ -1053,7 +1245,8 @@
               onClick: onProbe,
               disabled: probing,
             }, probing ? t('action.probing') : t('action.probe')));
-          } else if (busy === selected) {
+          } else if (busy === selected || (progress?.active === true && progress?.version === selected)) {
+            // 这个版本正在下载：本地发起的（busy）或别处发起的（宿主 progress）都算。
             actionButtons.push(h('button', {
               key: 'busy', type: 'button', className: 'dv-btn dv-btn-primary', disabled: true,
             }, h(DownloadIcon, { size: 13 }), h('span', null,
@@ -1092,27 +1285,6 @@
               onClick: () => { void onDownload(selected); },
             }, h(DownloadIcon, { size: 13 }), h('span', null, t('action.download'))));
           }
-
-          const progressBar = busy === selected
-            ? h('div', { className: 'dv-progress' },
-              h('div', { className: 'dv-progress-bar' },
-                h('div', {
-                  className: progress?.percent === undefined
-                    ? 'dv-progress-fill dv-progress-fill-indeterminate'
-                    : 'dv-progress-fill',
-                  style: progress?.percent === undefined ? undefined : { width: `${Math.min(100, progress.percent)}%` },
-                }),
-              ),
-              h('div', { className: 'dv-meta' },
-                progress === undefined || progress.received === undefined
-                  ? t('download.preparing')
-                  : t('download.speed', {
-                    received: progress.receivedText ?? '—',
-                    total: progress.sizeText ?? '—',
-                    speed: progress.speedText ?? '—',
-                  })),
-            )
-            : null;
 
           const links = [];
           if (release?.compareUrl !== undefined) {
@@ -1168,7 +1340,6 @@
               ),
             ),
             h('div', { className: 'dv-actions' }, ...actionButtons),
-            progressBar,
             installerState === 'available' && !alreadyDownloaded && busy !== selected
               ? h('div', { className: 'dv-meta' }, t('action.installHint'))
               : null,
@@ -1193,6 +1364,7 @@
               onCancelSwitch,
               switchBusy,
               purgeArm,
+              purgeLeft,
             }))
           : h('div', { className: 'dv-body' }, list, detail);
 
@@ -1200,8 +1372,28 @@
           header,
           toolbar,
           ...banners,
+          globalDownload,
           body,
           footer,
+          toastList.length === 0
+            ? null
+            : h('div', { className: 'dv-toasts', role: 'status', 'aria-live': 'polite' },
+              ...toastList.map((item) => h('div', {
+                key: item.id,
+                className: item.kind === 'error'
+                  ? 'dv-toast dv-toast-error'
+                  : item.kind === 'ok' ? 'dv-toast dv-toast-ok'
+                    : item.kind === 'warn' ? 'dv-toast dv-toast-warn' : 'dv-toast',
+                role: item.kind === 'error' ? 'alert' : 'status',
+              },
+              h('span', { className: 'dv-toast-text' }, item.text),
+              h('button', {
+                type: 'button',
+                className: 'dv-toast-close',
+                title: t('toast.dismiss'),
+                onClick: () => dismissToast(item.id),
+              }, '×'),
+              ))),
         );
       }
 

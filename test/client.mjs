@@ -424,6 +424,166 @@ try {
     assert.ok(!classes.includes('dv-list'), '已下载视图不渲染版本列表');
   });
 
+  test('下载进度不跟随选中版本：换版本后仍在页面上', () => {
+    React.__hooks.index = 0;
+    React.__hooks.states = [
+      {
+        ok: true,
+        packageName: '@deepseek-ai/dsh',
+        platformDir: 'win-x64',
+        total: 2,
+        runtime: { version: '0.2.2-rc.3' },
+        versions: [
+          { version: '0.2.2-rc.3', channel: 'rc', publishedAt: Date.UTC(2026, 10, 13), hasChangelog: true, installer: 'available', current: true },
+          { version: '0.2.1-rc.5', channel: 'rc', publishedAt: Date.UTC(2026, 10, 1), hasChangelog: true, installer: 'available' },
+        ],
+      },
+      false,
+      undefined,
+      'all',
+      // 用户已经切到另一个版本了，但下载还在跑的是 0.2.1-rc.5。
+      '0.2.2-rc.3',
+      { ok: true, found: true, version: '0.2.2-rc.3', zh: [], en: [] },
+      false,
+      'zh',
+      false,
+      undefined,
+      {},
+      {
+        ok: true,
+        active: true,
+        version: '0.2.1-rc.5',
+        state: 'downloading',
+        percent: 42,
+        received: 120000000,
+        total: 285000000,
+        receivedText: '114.4 MB',
+        sizeText: '271.8 MB',
+        speedText: '3.1 MB/s',
+      },
+      [],
+      'versions',
+      { items: [], total: 0, totalSizeText: '0 B', dir: 'C:/x' },
+      undefined,
+      undefined,
+      0,
+    ];
+    const rendered = factoryResult.__test.VersionsPage({ ctx });
+    const text = textOf(rendered);
+    assert.match(text, /正在下载 0\.2\.1-rc\.5/u, '进度要显示真正在下的那个版本');
+    assert.match(text, /42%/u);
+    assert.match(text, /3\.1 MB\/s/u);
+    assert.ok(classesOf(rendered).includes('dv-dl-global'), '要有页面级下载进度条');
+  });
+
+  test('切到「已下载」视图时下载进度依然可见', () => {
+    React.__hooks.index = 0;
+    React.__hooks.states = [
+      { ok: true, packageName: '@deepseek-ai/dsh', platformDir: 'win-x64', total: 0, runtime: { version: '0.2.2-rc.3' }, versions: [] },
+      false,
+      undefined,
+      'all',
+      '0.2.2-rc.3',
+      undefined,
+      false,
+      'zh',
+      false,
+      undefined,
+      {},
+      { ok: true, active: true, version: '0.2.1-rc.5', percent: 7, receivedText: '20 MB', sizeText: '271.8 MB', speedText: '1 MB/s' },
+      [],
+      'downloads',
+      { items: [], total: 0, totalSizeText: '0 B', dir: 'C:/x' },
+      undefined,
+      undefined,
+      0,
+    ];
+    const rendered = factoryResult.__test.VersionsPage({ ctx });
+    assert.match(textOf(rendered), /正在下载 0\.2\.1-rc\.5/u);
+    assert.ok(classesOf(rendered).includes('dv-dl-global'));
+  });
+
+  test('操作反馈走 toast，不再占顶部横幅', () => {
+    React.__hooks.index = 0;
+    React.__hooks.states = [
+      { ok: true, packageName: '@deepseek-ai/dsh', platformDir: 'win-x64', total: 0, runtime: { version: '0.2.2-rc.3' }, versions: [] },
+      false,
+      undefined,
+      'all',
+      undefined,
+      undefined,
+      false,
+      'zh',
+      false,
+      undefined,
+      {},
+      { ok: true, active: false },
+      [
+        { id: 1, kind: 'ok', text: '已下载 271.8 MB' },
+        { id: 2, kind: 'error', text: '下载失败：HTTP 404' },
+      ],
+      'versions',
+      undefined,
+      undefined,
+      undefined,
+      0,
+    ];
+    const rendered = factoryResult.__test.VersionsPage({ ctx });
+    const text = textOf(rendered);
+    assert.match(text, /已下载 271\.8 MB/u);
+    assert.match(text, /下载失败：HTTP 404/u);
+    const classes = classesOf(rendered).flatMap((name) => name.split(/\s+/u));
+    assert.ok(classes.includes('dv-toasts'), '要有 toast 容器');
+    assert.ok(classes.includes('dv-toast-error'), '错误 toast 要有独立样式');
+    assert.ok(!classes.includes('dv-banner'), '操作反馈不该再走横幅');
+    assert.ok(!classes.includes('dv-dl-global'), '没在下载就不显示进度条');
+  });
+
+  test('删除按钮的二次确认显示倒计时，超时由组件自动收回', () => {
+    const view = {
+      items: [{ version: '0.2.1-rc.5', path: 'C:/x/dsh.exe', size: 290000000, sizeText: '276.6 MB', current: false }],
+      total: 1,
+      totalSize: 290000000,
+      totalSizeText: '276.6 MB',
+      dir: 'C:/x',
+    };
+    const armed = factoryResult.__test.DownloadsList({
+      view,
+      currentVersion: '0.2.2-rc.3',
+      onSwitch() {},
+      onPurge() {},
+      onCancelSwitch() {},
+      switchBusy: undefined,
+      purgeArm: '0.2.1-rc.5',
+      purgeLeft: 3,
+    });
+    const armedText = textOf(armed);
+    assert.match(armedText, /再点一次确认删除 0\.2\.1-rc\.5/u);
+    assert.match(armedText, /3 秒后自动取消/u);
+    const classes = classesOf(armed).flatMap((name) => name.split(/\s+/u));
+    assert.ok(classes.includes('dv-btn-danger'), '上膛状态要有危险色');
+
+    // 没给 purgeLeft 时回落到默认秒数，不出现 undefined。
+    const fallback = factoryResult.__test.DownloadsList({
+      view,
+      currentVersion: '0.2.2-rc.3',
+      onSwitch() {},
+      onPurge() {},
+      onCancelSwitch() {},
+      switchBusy: undefined,
+      purgeArm: '0.2.1-rc.5',
+    });
+    assert.match(textOf(fallback), /4 秒后自动取消/u);
+    assert.ok(!textOf(fallback).includes('undefined'));
+  });
+
+  test('二次确认的文案键齐全（含秒数与取消提示）', () => {
+    const dict = factoryResult.__test.DICT.zh;
+    assert.match(dict['action.purgeConfirmHint'], /\{seconds\}/u);
+    assert.match(dict['action.purgeCancelled'], /取消/u);
+    assert.match(dict['toast.dismiss'], /关闭/u);
+  });
+
   process.stdout.write(`\n${passed} passed\n`);
 } catch (error) {
   process.stdout.write(`\n${passed} passed, then failed\n`);
