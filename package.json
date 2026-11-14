@@ -1,0 +1,81 @@
+{
+  "name": "@restregular/dsh-versions",
+  "version": "0.1.0",
+  "description": "DSH 版本历史与更新说明面板：列出 DeepSeek Harness 桌面版的全部历史版本、每个版本改了什么，并能一键下载对应版本的官方安装包来切换版本（不走 npm，直接用官方分发的安装程序）。A version history and changelog panel for DeepSeek Harness: browse every desktop release, read what changed, and download the official installer for the version you want to switch to.",
+  "keywords": [
+    "dsh",
+    "dsh-plugin",
+    "deepseek-harness",
+    "versions",
+    "changelog",
+    "release-notes",
+    "upgrade",
+    "downgrade"
+  ],
+  "type": "module",
+  "main": "index.js",
+  "exports": {
+    ".": "./index.js",
+    "./client": "./client.js",
+    "./locale/en.json": "./locale/en.json",
+    "./locale/zh.json": "./locale/zh.json",
+    "./icon": "./icon.svg",
+    "./cordis.patch.yml": "./cordis.patch.yml",
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "index.js",
+    "client.js",
+    "lib",
+    "locale",
+    "icon.svg",
+    "cordis.patch.yml",
+    "README.md",
+    "LICENSE"
+  ],
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    },
+    "client": {
+      "platform": "web",
+      "immediately": true,
+      "inject": [
+        "slots",
+        "locale"
+      ]
+    }
+  },
+  "peerDependencies": {
+    "@deepseek-ai/cordis": "*",
+    "@deepseek-ai/dsh-tools": "*"
+  },
+  "peerDependenciesMeta": {
+    "@deepseek-ai/cordis": {
+      "optional": true
+    },
+    "@deepseek-ai/dsh-tools": {
+      "optional": true
+    }
+  },
+  "engines": {
+    "node": ">=22.13.0"
+  },
+  "scripts": {
+    "test": "node test/smoke.mjs"
+  },
+  "publishConfig": {
+    "access": "public",
+    "registry": "https://registry.npmjs.org/"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/RestRegular/dsh-versions.git"
+  },
+  "homepage": "https://github.com/RestRegular/dsh-versions#readme",
+  "bugs": {
+    "url": "https://github.com/RestRegular/dsh-versions/issues"
+  },
+  "author": "RestRegular",
+  "license": "MIT"
+}

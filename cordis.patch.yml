@@ -1,0 +1,5 @@
+# dsh-versions 是一个 DSH bundle 插件，宿主按这里的 insert 行把它挂进桌面 profile。
+# 行里的 name 必须与 package.json 的 name 逐字节一致。
+- insert:
+    - id: dsh-versions
+      name: '@restregular/dsh-versions'
