@@ -23,6 +23,8 @@
  */
 
 import { defineTool } from '@deepseek-ai/dsh-tools';
+import { join } from 'node:path';
+
 import { Catalog } from './lib/catalog.js';
 import { Config, normalizeConfig } from './lib/config.js';
 import { Downloader } from './lib/installer.js';
@@ -49,8 +51,9 @@ export function apply(ctx, rawConfig) {
   const logger = ctx.logger;
   const dataDir = config.dataDir === '' ? defaultDataDir() : config.dataDir;
 
+  const downloadDir = join(dataDir, 'downloads');
   const catalog = new Catalog({ dir: dataDir, logger, cacheMinutes: config.cacheMinutes });
-  const downloader = new Downloader({ dir: `${dataDir}/downloads`, logger });
+  const downloader = new Downloader({ dir: downloadDir, logger });
   const switcher = new Switcher({ downloader, dir: dataDir, logger });
 
   /** 运行时信息缓存（版本探测会读 asar，别每次请求都读）。 */
@@ -76,7 +79,7 @@ export function apply(ctx, rawConfig) {
       arch: process.arch,
       channel: channel.channel,
       feedUrl: channel.feedUrl,
-      downloadDir: `${dataDir}/downloads`,
+      downloadDir,
     };
     runtimeAt = now;
     return runtimeCache;
@@ -140,7 +143,7 @@ export function apply(ctx, rawConfig) {
           if (info.channel !== undefined) parts.push(`更新通道：${info.channel}`);
           return [
             parts.join(' · '),
-            '用户问版本历史、更新内容或想换版本时，用 dsh_versions_list / dsh_versions_release / dsh_versions_download。',
+            '用户问版本历史、更新内容、想下载或切换版本时，用 dsh_versions_list / dsh_versions_release / dsh_versions_downloads / dsh_versions_download / dsh_versions_switch。',
           ].join('\n');
         },
       }), 'dsh-versions: version context');
