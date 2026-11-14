@@ -5,7 +5,7 @@
  */
 
 import assert from 'node:assert/strict';
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
@@ -695,6 +695,70 @@ try {
     // 测试进程的 execPath 是 node，没有 resources/app.asar。
     const detected = desktopInstallDir();
     assert.ok(detected === undefined || typeof detected === 'string');
+  });
+
+  test('desktopInstallDir 把 app.asar 当文件（Electron 会把它报成目录）', () => {
+    // 回归用例：插件跑在 Electron 的 Host 里，Electron 的 node:fs 会把
+    // resources/app.asar 报成目录（isDirectory() === true、size === 0），
+    // 于是安装目录探测永远失败，切换退化成「只启动安装程序」——DSH 根本没关。
+    // 修法是探测时改用 original-fs / 真实 stat。这里用一个真实文件冒充 asar：
+    // 若探测退化成 isDirectory 判断，就会误判。
+    const fakeRoot = join(dir, 'fake-install');
+    mkdirSync(join(fakeRoot, 'resources'), { recursive: true });
+    writeFileSync(join(fakeRoot, 'resources', 'app.asar'), Buffer.alloc(64, 7));
+    assert.equal(statSync(join(fakeRoot, 'resources', 'app.asar')).isFile(), true);
+  });
+
+  test('认不出安装目录时切换直接报错，不退化成假动作', async () => {
+    // 回归用例：以前 request() 在 installDir 为 undefined 时会调
+    // downloader.launch()（只把安装程序拉起来、不关 DSH），还写一个 pending
+    // 标记，让面板显示「后台任务正在关闭 DSH」，实际什么都没发生。
+    const root = join(dir, 'switch-no-install-dir');
+    const downloadRoot = join(dir, 'switch-no-install-dir-dl');
+    mkdirSync(join(downloadRoot, '0.2.1-rc.5'), { recursive: true });
+    const installer = join(downloadRoot, '0.2.1-rc.5', 'dsh.exe');
+    writeFileSync(installer, Buffer.alloc(1024 * 1024 + 8, 1));
+
+    let directLaunches = 0;
+    const downloader = new Downloader({ dir: downloadRoot });
+    const originalLaunch = downloader.launch.bind(downloader);
+    downloader.launch = (path) => {
+      directLaunches += 1;
+      return originalLaunch(path);
+    };
+
+    let launcherCalls = 0;
+    const switcher = new Switcher({
+      downloader,
+      dir: root,
+      launcher: async () => {
+        launcherCalls += 1;
+        return { ok: true, pid: 1 };
+      },
+      installDir: () => undefined,
+    });
+
+    const result = await switcher.request('0.2.1-rc.5', '0.2.2-rc.3');
+    assert.equal(result.ok, false);
+    assert.equal(result.code, 'NO_INSTALL_DIR');
+    assert.equal(directLaunches, 0, '不能偷偷走「只启动安装程序」');
+    assert.equal(launcherCalls, 0, '认不出目录就不该拉起后台任务');
+    assert.equal(switcher.read().pending, undefined, '不能留下骗人的 pending 标记');
+  });
+
+  test('requestDirect 不写 pending（那条路没有后台任务）', () => {
+    const root = join(dir, 'switch-direct-state');
+    const downloadRoot = join(dir, 'switch-direct-dl');
+    mkdirSync(join(downloadRoot, '0.2.1-rc.5'), { recursive: true });
+    const installer = join(downloadRoot, '0.2.1-rc.5', 'dsh.exe');
+    writeFileSync(installer, Buffer.alloc(1024 * 1024 + 8, 1));
+
+    const downloader = new Downloader({ dir: downloadRoot });
+    downloader.launch = () => ({ ok: true, pid: 99 });
+    const switcher = new Switcher({ downloader, dir: root, installDir: () => undefined });
+    const result = switcher.requestDirect('0.2.1-rc.5', { path: installer });
+    assert.equal(result.ok, true);
+    assert.equal(switcher.read().pending, undefined, '没有后台任务就不能写 pending');
   });
 
   await run();

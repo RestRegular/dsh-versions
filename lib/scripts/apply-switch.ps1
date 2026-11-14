@@ -9,7 +9,13 @@ param(
 $ErrorActionPreference = 'Continue'
 $ProgressPreference = 'SilentlyContinue'
 
-$req = Get-Content -LiteralPath $RequestPath -Raw | ConvertFrom-Json
+# If the request file is unreadable, bail out immediately: continuing would run
+# the rest of the script with null paths (and a null process name), which looks
+# like a switch that silently did nothing.
+if (-not (Test-Path -LiteralPath $RequestPath)) { exit 3 }
+$req = $null
+try { $req = Get-Content -LiteralPath $RequestPath -Raw | ConvertFrom-Json } catch { exit 3 }
+if ($null -eq $req -or [string]::IsNullOrWhiteSpace($req.logPath)) { exit 3 }
 $logPath = $req.logPath
 
 $utf8NoBom = New-Object System.Text.UTF8Encoding($false)
@@ -77,11 +83,16 @@ Start-Sleep -Milliseconds 1500
 
 $procs = @(Get-AppProcesses)
 Write-Log ('closing ' + $procs.Count + ' process(es) of ' + $req.exeName)
+
+# A polite window close is only a courtesy here: the Electron main process
+# intercepts window "close", calls preventDefault() and merely hides the window
+# (it wants to keep running in the tray), so CloseMainWindow() alone never ends
+# DSH. Ask once, give it a very short grace period, then force-stop.
 foreach ($p in $procs) {
   try { $null = $p.CloseMainWindow() } catch { }
 }
 
-$deadline = (Get-Date).AddSeconds(6)
+$deadline = (Get-Date).AddSeconds(2)
 while ((Get-Date) -lt $deadline) {
   if (@(Get-AppProcesses).Count -eq 0) { break }
   Start-Sleep -Milliseconds 250
@@ -93,6 +104,18 @@ if ($left.Count -gt 0) {
   foreach ($p in $left) {
     try { Stop-Process -Id $p.Id -Force -ErrorAction SilentlyContinue } catch { }
   }
+}
+
+# The installer cannot replace a running executable, so do not proceed while any
+# app process is still alive: retry the force stop until the tree is empty.
+$deadline = (Get-Date).AddSeconds(10)
+while ((Get-Date) -lt $deadline) {
+  $still = @(Get-AppProcesses)
+  if ($still.Count -eq 0) { break }
+  foreach ($p in $still) {
+    try { Stop-Process -Id $p.Id -Force -ErrorAction SilentlyContinue } catch { }
+  }
+  Start-Sleep -Milliseconds 300
 }
 
 # Wait until the executable is actually unlocked before handing it to the installer.
