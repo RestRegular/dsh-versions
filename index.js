@@ -30,7 +30,7 @@ import { Config, normalizeConfig } from './lib/config.js';
 import { Downloader } from './lib/installer.js';
 import { defaultDataDir } from './lib/paths.js';
 import { mountRoutes } from './lib/routes.js';
-import { detectCurrentVersion, updateChannel } from './lib/runtime.js';
+import { desktopInstallDir, detectCurrentVersion, updateChannel } from './lib/runtime.js';
 import { Switcher, downloadsView } from './lib/switch.js';
 import { createVersionTools } from './lib/tools.js';
 import { compareVersions } from './lib/version.js';
@@ -54,7 +54,8 @@ export function apply(ctx, rawConfig) {
   const downloadDir = join(dataDir, 'downloads');
   const catalog = new Catalog({ dir: dataDir, logger, cacheMinutes: config.cacheMinutes });
   const downloader = new Downloader({ dir: downloadDir, logger });
-  const switcher = new Switcher({ downloader, dir: dataDir, logger });
+  // 切换要「关掉 DSH → 跑安装程序 → 再拉起来」，所以得知道它装在哪。
+  const switcher = new Switcher({ downloader, dir: dataDir, logger, installDir: desktopInstallDir });
 
   /** 运行时信息缓存（版本探测会读 asar，别每次请求都读）。 */
   let runtimeCache;
@@ -97,6 +98,7 @@ export function apply(ctx, rawConfig) {
     },
     downloads: () => downloadsView({ downloader, switcher, currentVersion: runtime().version }),
     switchTo: (version) => switcher.request(version, runtime().version),
+    switchLog: () => switcher.log(40),
     purge: (version) => downloader.removeVersion(version),
   };
 

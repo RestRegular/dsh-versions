@@ -5,7 +5,7 @@
  */
 
 import assert from 'node:assert/strict';
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
@@ -19,6 +19,7 @@ import { createVersionTools, TOOL_NAMES } from '../lib/tools.js';
 import { parseJsonLoose, readFromAsar, desktopInstallDir } from '../lib/runtime.js';
 import { normalizeConfig, Config } from '../lib/config.js';
 import { Switcher, downloadsView } from '../lib/switch.js';
+import { buildRequest, readLaunchResult, readLog, writeScripts } from '../lib/apply.js';
 
 const dir = mkdtempSync(join(tmpdir(), 'dsh-versions-test-'));
 let passed = 0;
@@ -214,7 +215,7 @@ try {
     assert.equal(downloader.list().length, 1);
   });
 
-  test('Switcher 记录切换意图并在版本对上后结算', () => {
+  test('Switcher 记录切换意图并在版本对上后结算', async () => {
     const root = join(dir, 'switch-state');
     const downloadRoot = join(dir, 'switch-downloads');
     mkdirSync(root, { recursive: true });
@@ -223,28 +224,32 @@ try {
     writeFileSync(installer, Buffer.alloc(1024 * 1024 + 8, 1));
 
     const downloader = new Downloader({ dir: downloadRoot });
-    // 只替换 launch，避免测试真的启动安装程序。
+    // 只替换后台任务拉起，避免测试真的去关掉 DSH。
     const launched = [];
-    downloader.launch = (path) => {
-      launched.push(path);
-      return { ok: true, pid: 1234 };
+    const launcher = async (options) => {
+      launched.push(options.request);
+      return { ok: true, pid: 1234, logPath: options.request.logPath };
     };
-    const switcher = new Switcher({ downloader, dir: root });
+    const switcher = new Switcher({ downloader, dir: root, launcher, installDir: () => 'D:/soft/dsh' });
 
     assert.deepEqual(switcher.read(), {}, '初始没有状态');
 
-    const same = switcher.request('0.2.1-rc.5', '0.2.1-rc.5');
+    const same = await switcher.request('0.2.1-rc.5', '0.2.1-rc.5');
     assert.equal(same.ok, false);
     assert.equal(same.code, 'ALREADY_CURRENT');
 
-    const missing = switcher.request('0.1.0-rc.7', '0.2.2-rc.3');
+    const missing = await switcher.request('0.1.0-rc.7', '0.2.2-rc.3');
     assert.equal(missing.ok, false);
     assert.equal(missing.code, 'NOT_DOWNLOADED');
 
-    const ok = switcher.request('0.2.1-rc.5', '0.2.2-rc.3');
+    const ok = await switcher.request('0.2.1-rc.5', '0.2.2-rc.3');
     assert.equal(ok.ok, true);
     assert.equal(ok.path, installer);
-    assert.deepEqual(launched, [installer], '应当启动这个版本的安装程序');
+    assert.equal(launched.length, 1, '应当拉起一次后台更新任务');
+    assert.equal(launched[0].installerPath, installer);
+    assert.equal(launched[0].installDir, 'D:\\soft\\dsh');
+    assert.equal(launched[0].exeName, 'DeepSeek Harness');
+    assert.equal(launched[0].version, '0.2.1-rc.5');
 
     const pending = switcher.status('0.2.2-rc.3');
     assert.equal(pending.pending.version, '0.2.1-rc.5');
@@ -258,12 +263,80 @@ try {
     assert.deepEqual(switcher.status('0.2.1-rc.5'), settled);
 
     // 新的一次切换请求不会抹掉 applied 历史。
-    const again = switcher.request('0.2.1-rc.5', '0.2.2-rc.3');
+    const again = await switcher.request('0.2.1-rc.5', '0.2.2-rc.3');
     assert.equal(again.ok, true);
     const cancelled = switcher.cancel();
     assert.equal(cancelled.cleared, true);
     assert.equal(switcher.status('0.2.2-rc.3').pending, undefined);
     assert.equal(switcher.status('0.2.2-rc.3').applied.version, '0.2.1-rc.5', 'applied 历史要保留');
+  });
+
+  test('Switcher 丢弃过期的待切换标记', () => {
+    const root = join(dir, 'switch-stale');
+    mkdirSync(root, { recursive: true });
+    const cache = new JsonCache({ dir: root });
+    cache.write('switch-state', {
+      pending: { version: '0.2.1-rc.5', at: Date.now() - 7 * 60 * 60 * 1000 },
+      applied: { version: '0.2.0', at: Date.now() - 8 * 60 * 60 * 1000 },
+    });
+    const switcher = new Switcher({ downloader: new Downloader({ dir: join(dir, 'nope-stale') }), dir: root });
+    const state = switcher.status('0.2.2-rc.3');
+    assert.equal(state.pending, undefined, '过期标记要清掉');
+    assert.equal(state.applied.version, '0.2.0', '历史记录要留着');
+
+    // 新鲜的标记不受影响。
+    cache.write('switch-state', { pending: { version: '0.2.1-rc.5', at: Date.now() - 60_000 } });
+    assert.equal(switcher.status('0.2.2-rc.3').pending.version, '0.2.1-rc.5');
+  });
+
+  test('apply 组装请求并生成可用的 PowerShell 脚本', () => {
+    const applyDir = join(dir, 'apply-scripts');
+    const request = buildRequest({
+      version: '0.2.1-rc.5',
+      installerPath: 'C:/x/0.2.1-rc.5/dsh.exe',
+      installDir: 'D:/soft/dsh/',
+      exeFile: 'DeepSeek Harness.exe',
+      logPath: join(applyDir, 'apply-switch.log'),
+    });
+    assert.equal(request.installDir, 'D:\\soft\\dsh', '统一成反斜杠并去掉尾部分隔符');
+    assert.equal(request.installDirPrefix, 'D:\\soft\\dsh\\');
+    assert.equal(request.exeName, 'DeepSeek Harness');
+    assert.equal(request.relaunch, true);
+    assert.equal(request.dryRun, false);
+
+    const dry = buildRequest({ version: '0.2.1-rc.5', installerPath: 'x', installDir: 'D:/soft/dsh', exeFile: 'a.exe', logPath: 'l', dryRun: true, relaunch: false });
+    assert.equal(dry.dryRun, true);
+    assert.equal(dry.relaunch, false);
+
+    const paths = writeScripts(applyDir);
+    assert.equal(existsSync(paths.workerPath), true);
+    assert.equal(existsSync(paths.launcherPath), true);
+    const worker = readFileSync(paths.workerPath, 'utf8');
+    // 脚本必须只有 ASCII：Windows PowerShell 5.1 读无 BOM 的 .ps1 按 ANSI 解码。
+    assert.match(worker, /^[\x00-\x7F]*$/u, 'worker 脚本不能含非 ASCII 字符');
+    assert.match(worker, /Win32_Process|Stop-Process/u);
+    assert.match(worker, /\/S \/currentuser \/D=/u, '静默安装参数');
+    assert.match(worker, /CloseMainWindow/u);
+    assert.match(worker, /Start-Process -FilePath \$exePath/u, '装完要重新拉起');
+    assert.match(readFileSync(paths.launcherPath, 'utf8'), /^[\x00-\x7F]*$/u);
+  });
+
+  test('readLaunchResult / readLog 容忍 BOM 与缺失文件', () => {
+    const applyDir = join(dir, 'apply-read');
+    mkdirSync(applyDir, { recursive: true });
+    const resultPath = join(applyDir, 'apply-launch.json');
+    writeFileSync(resultPath, '\uFEFF{"ok":true,"pid":4321}', 'utf8');
+    assert.deepEqual(readLaunchResult(resultPath), { ok: true, pid: 4321 });
+    writeFileSync(resultPath, '{"ok":false,"error":"nope"}', 'utf8');
+    assert.deepEqual(readLaunchResult(resultPath), { ok: false, error: 'nope' });
+    assert.match(readLaunchResult(join(applyDir, 'missing.json')).error, /后台任务启动失败/u);
+
+    const log = readLog(applyDir, 5);
+    assert.equal(log.exists, false);
+    writeFileSync(join(applyDir, 'apply-switch.log'), '\uFEFFa\r\nb\r\n', 'utf8');
+    const tail = readLog(applyDir, 5);
+    assert.equal(tail.exists, true);
+    assert.equal(tail.text, 'a\nb');
   });
 
   test('downloadsView 汇总已下载与切换状态', () => {
@@ -456,11 +529,15 @@ try {
 
     const downloader = new Downloader({ dir: root });
     const launched = [];
-    downloader.launch = (path) => {
-      launched.push(path);
-      return { ok: true, pid: 77 };
-    };
-    const switcher = new Switcher({ downloader, dir: join(dir, 'ops-state') });
+    const switcher = new Switcher({
+      downloader,
+      dir: join(dir, 'ops-state'),
+      installDir: () => 'D:/soft/dsh',
+      launcher: async (options) => {
+        launched.push(options.request.installerPath);
+        return { ok: true, pid: 77, logPath: options.request.logPath };
+      },
+    });
 
     const ops = createOperations({
       catalog: { installerUrl: (version) => `https://x/${version}.exe` },
@@ -531,7 +608,13 @@ try {
         dir: 'C:/x',
         pending: { version: '0.2.1-rc.5', at: Date.UTC(2026, 10, 14) },
       }),
-      switchTo: (version) => ({ ok: true, version, path: `C:/x/${version}/dsh.exe`, pid: 42 }),
+      switchTo: (version) => ({
+        ok: true,
+        version,
+        path: `C:/x/${version}/dsh.exe`,
+        pid: 42,
+        logPath: 'C:/x/apply-switch.log',
+      }),
     };
     const definitions = createVersionTools(defineTool, ops);
     assert.equal(definitions.length, 5);
@@ -551,7 +634,7 @@ try {
 
     const downloadText = await definitions[2].execute({ version: '0.2.2-rc.3' });
     assert.match(downloadText, /285\.7 MB/u);
-    assert.match(downloadText, /插件不会自动执行安装/u);
+    assert.match(downloadText, /dsh_versions_switch/u);
     assert.match(downloadText, /dsh_versions_switch/u, '下载后要提示可以切换');
 
     const downloadsText = await definitions[3].execute({});
@@ -566,8 +649,9 @@ try {
     assert.match(await definitions[3].execute({ version: '0.1.0-rc.7' }), /本地没有 0\.1\.0-rc\.7 的安装包/u);
 
     const switchText = await definitions[4].execute({ version: '0.2.1-rc.5' });
-    assert.match(switchText, /已启动 DSH 0\.2\.1-rc\.5 的官方安装程序/u);
-    assert.match(switchText, /由用户在安装程序里确认/u);
+    assert.match(switchText, /已开始把 DSH 切换到 0\.2\.1-rc\.5/u);
+    assert.match(switchText, /后台任务会先关闭当前正在运行的 DSH/u);
+    assert.match(switchText, /apply-switch\.log/u);
 
     assert.match(await definitions[2].execute({}), /缺少版本号/u);
     assert.match(await definitions[4].execute({}), /缺少版本号/u);

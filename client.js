@@ -89,8 +89,8 @@
           'action.discarded': '安装包已删除',
           'action.downloadFailed': '下载失败：{message}',
           'action.switch': '切换到此版本',
-          'action.switching': '正在启动安装程序…',
-          'action.switched': '已启动 {version} 的安装程序，装完后重新打开 DSH 即生效',
+          'action.switching': '正在启动后台更新…',
+          'action.switched': '已开始切换到 {version}：后台任务会关闭 DSH、静默安装并自动重新打开（界面会短暂断开）',
           'action.switchFailed': '切换失败：{message}',
           'action.switchSame': '这就是当前运行的版本',
           'action.purge': '删除下载',
@@ -98,7 +98,8 @@
           'action.purgeConfirm': '再点一次确认删除 {version} 的安装包',
           'action.cancelSwitch': '取消切换',
           'action.switchCancelled': '已取消待切换标记',
-          'switch.pending': '待切换：{version} — 安装程序已启动，装完后重新打开 DSH 即生效',
+          'switch.pending': '待切换：{version} — 后台任务正在关闭 DSH 并静默安装，装完会自动重新打开',
+          'switch.log': '切换日志：{path}',
           'switch.applied': '上次切换已完成：{version}（{date}）',
           'download.preparing': '准备下载…',
           'download.speed': '{received} / {total} · {speed}',
@@ -164,8 +165,8 @@
           'action.discarded': 'Installer deleted',
           'action.downloadFailed': 'Download failed: {message}',
           'action.switch': 'Switch to this version',
-          'action.switching': 'Starting installer…',
-          'action.switched': 'Started the {version} installer — reopen DSH to finish switching',
+          'action.switching': 'Starting background update…',
+          'action.switched': 'Switching to {version}: a background task closes DSH, installs silently and reopens it (the UI drops for a moment)',
           'action.switchFailed': 'Switch failed: {message}',
           'action.switchSame': 'This is the version you are running',
           'action.purge': 'Delete download',
@@ -173,7 +174,8 @@
           'action.purgeConfirm': 'Click again to delete the {version} installer',
           'action.cancelSwitch': 'Cancel switch',
           'action.switchCancelled': 'Pending switch cleared',
-          'switch.pending': 'Pending switch: {version} — installer started; reopen DSH to finish',
+          'switch.pending': 'Pending switch: {version} — a background task is closing DSH, installing silently, then reopening it',
+          'switch.log': 'Switch log: {path}',
           'switch.applied': 'Last switch completed: {version} ({date})',
           'download.preparing': 'Preparing download…',
           'download.speed': '{received} / {total} · {speed}',
@@ -590,6 +592,8 @@
         if (view?.pending !== undefined) {
           rows.push(h('div', { key: 'pending', className: 'dv-banner dv-banner-warn dv-pending' },
             h('span', null, t('switch.pending', { version: view.pending.version })),
+            view.pending.logPath === undefined ? null : h('div', { className: 'dv-meta dv-dl-path', title: view.pending.logPath },
+              t('switch.log', { path: view.pending.logPath })),
             h('button', {
               type: 'button',
               className: 'dv-btn dv-btn-ghost',
@@ -868,7 +872,7 @@
             setNotice({ kind: 'info', text: t('action.switched', { version }) });
             setDownloads((previous) => (previous === undefined
               ? previous
-              : { ...previous, pending: payload.pending }));
+              : { ...previous, pending: payload.pending ?? { version } }));
           } catch (caught) {
             if (alive.current) {
               setNotice({ kind: 'error', text: t('action.switchFailed', { message: String(caught?.message ?? caught) }) });
