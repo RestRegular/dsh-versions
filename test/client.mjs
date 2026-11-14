@@ -324,6 +324,106 @@ try {
     assert.ok(!text.includes('下载安装包'), '不该出现下载按钮');
   });
 
+  test('已下载列表渲染当前版本、切换与删除', () => {
+    const view = {
+      items: [
+        { version: '0.2.2-rc.3', path: 'C:/x/0.2.2-rc.3/dsh.exe', size: 299595752, sizeText: '285.7 MB', current: true },
+        { version: '0.2.1-rc.5', path: 'C:/x/0.2.1-rc.5/dsh.exe', size: 290000000, sizeText: '276.6 MB', current: false },
+      ],
+      total: 2,
+      totalSize: 589595752,
+      totalSizeText: '562.3 MB',
+      dir: 'C:/x/downloads',
+      pending: { version: '0.2.1-rc.5', at: Date.UTC(2026, 10, 14) },
+    };
+    const rendered = factoryResult.__test.DownloadsList({
+      view,
+      currentVersion: '0.2.2-rc.3',
+      onSwitch() {},
+      onPurge() {},
+      onCancelSwitch() {},
+      switchBusy: undefined,
+      purgeArm: undefined,
+    });
+    const text = textOf(rendered);
+    assert.match(text, /已下载/u);
+    assert.match(text, /0\.2\.2-rc\.3/u);
+    assert.match(text, /0\.2\.1-rc\.5/u);
+    assert.match(text, /285\.7 MB/u);
+    assert.match(text, /562\.3 MB/u);
+    assert.match(text, /当前/u, '当前版本要标记');
+    assert.match(text, /切换/u);
+    assert.match(text, /删除/u);
+    assert.match(text, /待切换：0\.2\.1-rc\.5/u);
+    assert.match(text, /取消切换/u);
+    assert.match(text, /C:\/x\/downloads/u, '要显示下载目录');
+    const classes = classesOf(rendered);
+    assert.ok(classes.includes('dv-dl-row'), classes.join(','));
+  });
+
+  test('已下载列表为空时给引导文案', () => {
+    const rendered = factoryResult.__test.DownloadsList({
+      view: { items: [], total: 0, totalSize: 0, totalSizeText: '0 B', dir: 'C:/x' },
+      currentVersion: '0.2.2-rc.3',
+      onSwitch() {},
+      onPurge() {},
+      onCancelSwitch() {},
+      switchBusy: undefined,
+      purgeArm: undefined,
+    });
+    const text = textOf(rendered);
+    assert.match(text, /还没有下载过安装包/u);
+    assert.match(text, /下载安装包/u, '要告诉用户去哪儿下');
+    assert.ok(!classesOf(rendered).includes('dv-dl-row'), '空列表不该有行');
+  });
+
+  test('面板能切到「已下载」视图', () => {
+    React.__hooks.index = 0;
+    React.__hooks.states = [
+      {
+        ok: true,
+        packageName: '@deepseek-ai/dsh',
+        platformDir: 'win-x64',
+        total: 1,
+        runtime: { version: '0.2.2-rc.3' },
+        versions: [
+          { version: '0.2.2-rc.3', channel: 'rc', publishedAt: Date.UTC(2026, 10, 13), hasChangelog: true, installer: 'available', current: true },
+        ],
+      },
+      false,
+      undefined,
+      'all',
+      '0.2.2-rc.3',
+      undefined,
+      false,
+      'zh',
+      false,
+      undefined,
+      {},
+      undefined,
+      undefined,
+      // 追加的状态：view, downloads, switchBusy, purgeArm
+      'downloads',
+      {
+        items: [{ version: '0.2.1-rc.5', path: 'C:/x/dsh.exe', size: 290000000, sizeText: '276.6 MB', current: false }],
+        total: 1,
+        totalSize: 290000000,
+        totalSizeText: '276.6 MB',
+        dir: 'C:/x',
+      },
+      undefined,
+      undefined,
+    ];
+    const rendered = factoryResult.__test.VersionsPage({ ctx });
+    const text = textOf(rendered);
+    assert.match(text, /已下载/u);
+    assert.match(text, /0\.2\.1-rc\.5/u);
+    assert.match(text, /1 个 · 276\.6 MB/u, '工具栏显示已下载汇总');
+    const classes = classesOf(rendered).flatMap((name) => name.split(/\s+/u));
+    assert.ok(classes.includes('dv-body-single'), '已下载视图不该再分左右两栏');
+    assert.ok(!classes.includes('dv-list'), '已下载视图不渲染版本列表');
+  });
+
   process.stdout.write(`\n${passed} passed\n`);
 } catch (error) {
   process.stdout.write(`\n${passed} passed, then failed\n`);

@@ -5,7 +5,7 @@
  */
 
 import assert from 'node:assert/strict';
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
@@ -14,22 +14,40 @@ import { parseReleaseBody, renderReleaseText } from '../lib/changelog.js';
 import { JsonCache } from '../lib/cache.js';
 import { formatBytes, fileNameOf, Downloader } from '../lib/installer.js';
 import { createOperations, isLoopback, versionOf, ROUTE } from '../lib/routes.js';
-import { renderVersionList, renderRelease, channelLabel, installerLabel } from '../lib/render.js';
+import { renderVersionList, renderRelease, renderDownloads, renderSwitchState, channelLabel, installerLabel } from '../lib/render.js';
 import { createVersionTools, TOOL_NAMES } from '../lib/tools.js';
 import { parseJsonLoose, readFromAsar, desktopInstallDir } from '../lib/runtime.js';
 import { normalizeConfig, Config } from '../lib/config.js';
+import { Switcher, downloadsView } from '../lib/switch.js';
 
 const dir = mkdtempSync(join(tmpdir(), 'dsh-versions-test-'));
 let passed = 0;
 
+/**
+ * 登记一个测试。同步与异步都支持：真正的执行放到全部登记完之后，
+ * 否则异步用例会在 finally 清理临时目录之后才继续跑，读到的全是空目录。
+ * @param {string} name 用例名。
+ * @param {() => unknown} fn 用例体。
+ */
+const queue = [];
 function test(name, fn) {
-  try {
-    fn();
-    passed += 1;
-    process.stdout.write(`ok   ${name}\n`);
-  } catch (error) {
-    process.stdout.write(`FAIL ${name}\n`);
-    throw error;
+  queue.push({ name, fn });
+}
+
+/**
+ * 顺序执行登记过的用例；第一个失败即中止。
+ * @returns {Promise<void>} 完成。
+ */
+async function run() {
+  for (const { name, fn } of queue) {
+    try {
+      await fn();
+      passed += 1;
+      process.stdout.write(`ok   ${name}\n`);
+    } catch (error) {
+      process.stdout.write(`FAIL ${name}\n`);
+      throw error;
+    }
   }
 }
 
@@ -164,6 +182,109 @@ try {
     assert.equal(downloader.status().active, false);
   });
 
+  test('Downloader 能扫出已下载的安装包并按版本删除', () => {
+    const root = join(dir, 'downloads-scan');
+    const downloader = new Downloader({ dir: root });
+    const big = Buffer.alloc(1024 * 1024 + 8, 7);
+    for (const version of ['0.2.2-rc.3', '0.2.1-rc.5']) {
+      const target = join(root, version);
+      mkdirSync(target, { recursive: true });
+      writeFileSync(join(target, `deepseek-harness-${version}-win-x64.exe`), big);
+    }
+    // 太小的文件不算下载完成。
+    const tiny = join(root, '0.1.0-rc.1');
+    mkdirSync(tiny, { recursive: true });
+    writeFileSync(join(tiny, 'deepseek-harness-0.1.0-rc.1-win-x64.exe'), 'x');
+
+    const rows = downloader.list();
+    assert.deepEqual(rows.map((row) => row.version), ['0.2.2-rc.3', '0.2.1-rc.5'], '从新到旧，且跳过残缺文件');
+    assert.equal(rows[0].size, big.length);
+    assert.match(rows[0].sizeText, /MB$/u);
+    assert.equal(rows[0].current, undefined, 'list 不判断当前版本');
+
+    const entry = downloader.entryFor('0.2.1-rc.5');
+    assert.match(entry.path, /0\.2\.1-rc\.5/u);
+    assert.equal(downloader.entryFor('0.1.0-rc.1'), undefined, '小于 1 MB 的当作没下完');
+    assert.equal(downloader.entryFor('9.9.9'), undefined);
+
+    const purged = downloader.removeVersion('0.2.1-rc.5');
+    assert.equal(purged.removed, true);
+    assert.equal(purged.freedBytes, big.length);
+    assert.equal(downloader.entryFor('0.2.1-rc.5'), undefined);
+    assert.equal(downloader.list().length, 1);
+  });
+
+  test('Switcher 记录切换意图并在版本对上后结算', () => {
+    const root = join(dir, 'switch-state');
+    const downloadRoot = join(dir, 'switch-downloads');
+    mkdirSync(root, { recursive: true });
+    mkdirSync(join(downloadRoot, '0.2.1-rc.5'), { recursive: true });
+    const installer = join(downloadRoot, '0.2.1-rc.5', 'dsh.exe');
+    writeFileSync(installer, Buffer.alloc(1024 * 1024 + 8, 1));
+
+    const downloader = new Downloader({ dir: downloadRoot });
+    // 只替换 launch，避免测试真的启动安装程序。
+    const launched = [];
+    downloader.launch = (path) => {
+      launched.push(path);
+      return { ok: true, pid: 1234 };
+    };
+    const switcher = new Switcher({ downloader, dir: root });
+
+    assert.deepEqual(switcher.read(), {}, '初始没有状态');
+
+    const same = switcher.request('0.2.1-rc.5', '0.2.1-rc.5');
+    assert.equal(same.ok, false);
+    assert.equal(same.code, 'ALREADY_CURRENT');
+
+    const missing = switcher.request('0.1.0-rc.7', '0.2.2-rc.3');
+    assert.equal(missing.ok, false);
+    assert.equal(missing.code, 'NOT_DOWNLOADED');
+
+    const ok = switcher.request('0.2.1-rc.5', '0.2.2-rc.3');
+    assert.equal(ok.ok, true);
+    assert.equal(ok.path, installer);
+    assert.deepEqual(launched, [installer], '应当启动这个版本的安装程序');
+
+    const pending = switcher.status('0.2.2-rc.3');
+    assert.equal(pending.pending.version, '0.2.1-rc.5');
+    assert.equal(pending.applied, undefined, '版本还没变，不算完成');
+
+    // 切回去之后：当前版本等于 pending.version，结算成 applied。
+    const settled = switcher.status('0.2.1-rc.5');
+    assert.equal(settled.pending, undefined);
+    assert.equal(settled.applied.version, '0.2.1-rc.5');
+    // 幂等：再问一次不会变。
+    assert.deepEqual(switcher.status('0.2.1-rc.5'), settled);
+
+    // 新的一次切换请求不会抹掉 applied 历史。
+    const again = switcher.request('0.2.1-rc.5', '0.2.2-rc.3');
+    assert.equal(again.ok, true);
+    const cancelled = switcher.cancel();
+    assert.equal(cancelled.cleared, true);
+    assert.equal(switcher.status('0.2.2-rc.3').pending, undefined);
+    assert.equal(switcher.status('0.2.2-rc.3').applied.version, '0.2.1-rc.5', 'applied 历史要保留');
+  });
+
+  test('downloadsView 汇总已下载与切换状态', () => {
+    const root = join(dir, 'view-downloads');
+    mkdirSync(join(root, '0.2.1-rc.5'), { recursive: true });
+    writeFileSync(join(root, '0.2.1-rc.5', 'dsh.exe'), Buffer.alloc(2 * 1024 * 1024, 1));
+    const downloader = new Downloader({ dir: root });
+    const switcher = new Switcher({ downloader, dir: join(dir, 'view-state') });
+
+    const empty = downloadsView({ downloader: new Downloader({ dir: join(dir, 'nope') }), currentVersion: '0.2.2-rc.3' });
+    assert.deepEqual(empty.items, []);
+    assert.equal(empty.total, 0);
+    assert.equal(empty.totalSizeText, '0 B');
+
+    const view = downloadsView({ downloader, switcher, currentVersion: '0.2.1-rc.5' });
+    assert.equal(view.total, 1);
+    assert.equal(view.items[0].current, true, '当前版本要标出来');
+    assert.match(view.totalSizeText, /MB$/u);
+    assert.equal(view.dir, root);
+  });
+
   test('versionOf 收敛非法版本号', () => {
     assert.equal(versionOf(' 0.2.2-rc.3 '), '0.2.2-rc.3');
     assert.equal(versionOf('../../etc/passwd'), undefined);
@@ -229,6 +350,33 @@ try {
     }, '0.2.2-rc.3');
     assert.match(text, /这就是当前安装的版本/u);
     assert.match(text, /【新增功能】/u);
+  });
+
+  test('renderDownloads 列出已下载与切换状态', () => {
+    const empty = renderDownloads({
+      items: [], total: 0, totalSize: 0, totalSizeText: '0 B', dir: 'C:/x',
+    });
+    assert.match(empty, /还没有下载过任何 DSH 安装包/u);
+    assert.match(empty, /C:\/x/u);
+
+    const text = renderDownloads({
+      items: [
+        { version: '0.2.2-rc.3', sizeText: '285.7 MB', current: true },
+        { version: '0.2.1-rc.5', sizeText: '276.6 MB', current: false },
+      ],
+      total: 2,
+      totalSize: 589595752,
+      totalSizeText: '562.3 MB',
+      dir: 'C:/x',
+      pending: { version: '0.2.1-rc.5', at: Date.UTC(2026, 10, 14) },
+      applied: { version: '0.2.0-rc.1', at: Date.UTC(2026, 10, 10) },
+    });
+    assert.match(text, /已下载的 DSH 安装包：2 个/u);
+    assert.match(text, /562\.3 MB/u);
+    assert.match(text, /← 当前版本/u);
+    assert.match(text, /待切换：0\.2\.1-rc\.5/u);
+    assert.match(text, /上次切换已完成：0\.2\.0-rc\.1/u);
+    assert.equal(renderSwitchState({}), undefined);
   });
 
   test('createOperations 各 op 走同一份依赖', async () => {
@@ -300,7 +448,61 @@ try {
     assert.equal(ROUTE, '/dsh-versions');
   });
 
-  test('createVersionTools 注册三个工具并渲染', async () => {
+  test('createOperations 的 switch / purge / downloads 走同一份 Switcher', async () => {
+    const root = join(dir, 'ops-downloads');
+    mkdirSync(join(root, '0.2.1-rc.5'), { recursive: true });
+    const installerPath = join(root, '0.2.1-rc.5', 'dsh.exe');
+    writeFileSync(installerPath, Buffer.alloc(1024 * 1024 + 8, 1));
+
+    const downloader = new Downloader({ dir: root });
+    const launched = [];
+    downloader.launch = (path) => {
+      launched.push(path);
+      return { ok: true, pid: 77 };
+    };
+    const switcher = new Switcher({ downloader, dir: join(dir, 'ops-state') });
+
+    const ops = createOperations({
+      catalog: { installerUrl: (version) => `https://x/${version}.exe` },
+      downloader,
+      switcher,
+      runtime: () => ({ version: '0.2.2-rc.3' }),
+    });
+
+    const view = await ops.downloads();
+    assert.equal(view.ok, true);
+    assert.equal(view.total, 1);
+    assert.equal(view.items[0].version, '0.2.1-rc.5');
+    assert.equal(view.items[0].current, false);
+
+    const same = await ops.switch({ version: '0.2.2-rc.3' });
+    assert.equal(same.ok, false, '切到当前版本没有意义');
+
+    const missing = await ops.switch({ version: '0.1.0-rc.7' });
+    assert.equal(missing.ok, false);
+    assert.match(missing.error, /还没下载/u);
+
+    const switched = await ops.switch({ version: '0.2.1-rc.5' });
+    assert.equal(switched.ok, true);
+    assert.equal(switched.path, installerPath);
+    assert.deepEqual(launched, [installerPath]);
+    assert.equal((await ops.downloads()).pending.version, '0.2.1-rc.5');
+
+    const cancelled = await ops.unswitch();
+    assert.equal(cancelled.ok, true);
+    assert.equal((await ops.downloads()).pending, undefined);
+
+    const purged = await ops.purge({ version: '0.2.1-rc.5' });
+    assert.equal(purged.ok, true);
+    assert.match(purged.freedText, /MB$/u);
+    assert.deepEqual((await ops.downloads()).items, []);
+
+    assert.equal((await ops.purge({ version: '../x' })).ok, false);
+    assert.equal((await ops.switch({ version: '' })).ok, false);
+    assert.equal((await ops.purge({})).ok, false);
+  });
+
+  test('createVersionTools 注册五个工具并渲染', async () => {
     const registered = [];
     const defineTool = (definition) => {
       registered.push(definition);
@@ -318,10 +520,25 @@ try {
       }),
       release: async (version) => ({ version, found: true, text: '【新增功能】\n- 一条' }),
       download: async (version) => ({ ok: true, version, path: 'C:/x/dsh.exe', sizeText: '285.7 MB' }),
+      downloads: () => ({
+        items: [
+          { version: '0.2.2-rc.3', path: 'C:/x/0.2.2-rc.3/dsh.exe', size: 299595752, sizeText: '285.7 MB', current: true },
+          { version: '0.2.1-rc.5', path: 'C:/x/0.2.1-rc.5/dsh.exe', size: 290000000, sizeText: '276.6 MB', current: false },
+        ],
+        total: 2,
+        totalSize: 589595752,
+        totalSizeText: '562.3 MB',
+        dir: 'C:/x',
+        pending: { version: '0.2.1-rc.5', at: Date.UTC(2026, 10, 14) },
+      }),
+      switchTo: (version) => ({ ok: true, version, path: `C:/x/${version}/dsh.exe`, pid: 42 }),
     };
     const definitions = createVersionTools(defineTool, ops);
-    assert.equal(definitions.length, 3);
-    assert.deepEqual(definitions.map((item) => item.name), [TOOL_NAMES.list, TOOL_NAMES.release, TOOL_NAMES.download]);
+    assert.equal(definitions.length, 5);
+    assert.deepEqual(
+      definitions.map((item) => item.name),
+      [TOOL_NAMES.list, TOOL_NAMES.release, TOOL_NAMES.download, TOOL_NAMES.downloads, TOOL_NAMES.switch],
+    );
 
     const listText = await definitions[0].execute({ channel: 'rc' });
     assert.match(listText, /当前版本：0\.2\.2-rc\.3/u);
@@ -335,8 +552,25 @@ try {
     const downloadText = await definitions[2].execute({ version: '0.2.2-rc.3' });
     assert.match(downloadText, /285\.7 MB/u);
     assert.match(downloadText, /插件不会自动执行安装/u);
+    assert.match(downloadText, /dsh_versions_switch/u, '下载后要提示可以切换');
+
+    const downloadsText = await definitions[3].execute({});
+    assert.match(downloadsText, /已下载的 DSH 安装包：2 个/u);
+    assert.match(downloadsText, /562\.3 MB/u);
+    assert.match(downloadsText, /0\.2\.1-rc\.5/u);
+    assert.match(downloadsText, /← 当前版本/u);
+    assert.match(downloadsText, /待切换：0\.2\.1-rc\.5/u);
+
+    const hitText = await definitions[3].execute({ version: '0.2.1-rc.5' });
+    assert.match(hitText, /已下载 0\.2\.1-rc\.5 的安装包/u);
+    assert.match(await definitions[3].execute({ version: '0.1.0-rc.7' }), /本地没有 0\.1\.0-rc\.7 的安装包/u);
+
+    const switchText = await definitions[4].execute({ version: '0.2.1-rc.5' });
+    assert.match(switchText, /已启动 DSH 0\.2\.1-rc\.5 的官方安装程序/u);
+    assert.match(switchText, /由用户在安装程序里确认/u);
 
     assert.match(await definitions[2].execute({}), /缺少版本号/u);
+    assert.match(await definitions[4].execute({}), /缺少版本号/u);
     const failed = await definitions[2].execute({ version: '0.1.0-rc.7' });
     assert.ok(typeof failed === 'string');
   });
@@ -379,6 +613,7 @@ try {
     assert.ok(detected === undefined || typeof detected === 'string');
   });
 
+  await run();
   process.stdout.write(`\n${passed} passed\n`);
 } finally {
   try {

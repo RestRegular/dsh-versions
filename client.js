@@ -79,7 +79,6 @@
           'action.download': '下载安装包',
           'action.downloading': '下载中 {percent}',
           'action.downloaded': '重新下载',
-          'action.install': '运行安装程序',
           'action.discard': '删除安装包',
           'action.probe': '检查是否有安装包',
           'action.probing': '检查中…',
@@ -87,14 +86,35 @@
           'action.noInstaller': '这个版本在 {platform} 上没有官方安装包',
           'action.noInstallerHint': '只有较新的版本提供桌面安装包；更早的版本只能用 npm 安装。',
           'action.installHint': '安装程序会自己完成升级，请按它的提示操作（可能需要先退出 DSH）。',
-          'action.launched': '安装程序已启动',
           'action.discarded': '安装包已删除',
-          'action.busy': '已有下载任务在进行中',
           'action.downloadFailed': '下载失败：{message}',
+          'action.switch': '切换到此版本',
+          'action.switching': '正在启动安装程序…',
+          'action.switched': '已启动 {version} 的安装程序，装完后重新打开 DSH 即生效',
+          'action.switchFailed': '切换失败：{message}',
+          'action.switchSame': '这就是当前运行的版本',
+          'action.purge': '删除下载',
+          'action.purged': '已删除 {version} 的安装包，释放 {size}',
+          'action.purgeConfirm': '再点一次确认删除 {version} 的安装包',
+          'action.cancelSwitch': '取消切换',
+          'action.switchCancelled': '已取消待切换标记',
+          'switch.pending': '待切换：{version} — 安装程序已启动，装完后重新打开 DSH 即生效',
+          'switch.applied': '上次切换已完成：{version}（{date}）',
           'download.preparing': '准备下载…',
           'download.speed': '{received} / {total} · {speed}',
           'lang.zh': '中文',
           'lang.en': 'English',
+          'downloads.title': '已下载',
+          'downloads.count': '{count} 个 · {size}',
+          'downloads.empty': '还没有下载过安装包',
+          'downloads.emptyHint': '在右边选一个版本点「下载安装包」，下好后会出现在这里，可以随时切换回去。',
+          'downloads.dir': '下载目录',
+          'downloads.current': '当前',
+          'downloads.switch': '切换',
+          'downloads.remove': '删除',
+          'downloads.total': '共 {count} 个 · {size}',
+          'tab.versions': '版本',
+          'tab.downloads': '已下载',
         },
         en: {
           'panel.title': 'Version history',
@@ -134,7 +154,6 @@
           'action.download': 'Download installer',
           'action.downloading': 'Downloading {percent}',
           'action.downloaded': 'Download again',
-          'action.install': 'Run installer',
           'action.discard': 'Delete installer',
           'action.probe': 'Check for installer',
           'action.probing': 'Checking…',
@@ -142,14 +161,35 @@
           'action.noInstaller': 'No official installer for this version on {platform}',
           'action.noInstallerHint': 'Only newer versions ship desktop installers; older ones are npm-only.',
           'action.installHint': 'The installer upgrades DSH itself — follow its prompts (it may ask you to quit DSH first).',
-          'action.launched': 'Installer launched',
           'action.discarded': 'Installer deleted',
-          'action.busy': 'Another download is already running',
           'action.downloadFailed': 'Download failed: {message}',
+          'action.switch': 'Switch to this version',
+          'action.switching': 'Starting installer…',
+          'action.switched': 'Started the {version} installer — reopen DSH to finish switching',
+          'action.switchFailed': 'Switch failed: {message}',
+          'action.switchSame': 'This is the version you are running',
+          'action.purge': 'Delete download',
+          'action.purged': 'Deleted the {version} installer, freed {size}',
+          'action.purgeConfirm': 'Click again to delete the {version} installer',
+          'action.cancelSwitch': 'Cancel switch',
+          'action.switchCancelled': 'Pending switch cleared',
+          'switch.pending': 'Pending switch: {version} — installer started; reopen DSH to finish',
+          'switch.applied': 'Last switch completed: {version} ({date})',
           'download.preparing': 'Preparing download…',
           'download.speed': '{received} / {total} · {speed}',
           'lang.zh': '中文',
           'lang.en': 'English',
+          'downloads.title': 'Downloaded',
+          'downloads.count': '{count} · {size}',
+          'downloads.empty': 'No installers downloaded yet',
+          'downloads.emptyHint': 'Pick a version on the right and hit "Download installer"; it shows up here so you can switch back anytime.',
+          'downloads.dir': 'Download folder',
+          'downloads.current': 'current',
+          'downloads.switch': 'Switch',
+          'downloads.remove': 'Delete',
+          'downloads.total': '{count} downloaded · {size}',
+          'tab.versions': 'Versions',
+          'tab.downloads': 'Downloaded',
         },
       };
 
@@ -352,6 +392,33 @@
 }
 .dv-banner-error { border-color: var(--dsw-alias-state-error-primary); color: var(--dsw-alias-state-error-primary); }
 .dv-banner-warn { border-color: var(--dsw-alias-state-warn-primary); color: var(--dsw-alias-state-warn-primary); }
+.dv-banner-ok { border-color: var(--dsw-alias-state-success-primary); color: var(--dsw-alias-state-success-primary); }
+.dv-pending { display: flex; align-items: center; gap: 10px; justify-content: space-between; flex-wrap: wrap; }
+.dv-tabs { flex: 0 0 auto; }
+.dv-tab-count {
+  margin-left: 4px; padding: 0 5px; border-radius: 999px; font-size: 10px;
+  background: var(--dsw-alias-bg-layer-1); color: var(--dsw-alias-label-secondary);
+}
+.dv-body-single { align-items: stretch; }
+.dv-btn-danger {
+  background: var(--dsw-alias-state-error-primary); border-color: transparent; color: #fff; font-weight: 600;
+}
+.dv-btn-danger:hover:not(:disabled) { opacity: .92; background: var(--dsw-alias-state-error-primary); }
+.dv-downloads { gap: 8px; }
+.dv-dl-list { display: flex; flex-direction: column; gap: 6px; }
+.dv-dl-row {
+  display: flex; align-items: center; gap: 12px; flex-wrap: wrap;
+  padding: 8px 10px; border-radius: 8px;
+  border: 1px solid var(--dsw-alias-border-l1); background: var(--dsw-alias-bg-layer-1);
+}
+.dv-dl-main { min-width: 0; flex: 1 1 240px; display: flex; flex-direction: column; gap: 3px; }
+.dv-dl-top { display: flex; align-items: baseline; gap: 8px; }
+.dv-dl-path {
+  font-size: 11px; color: var(--dsw-alias-label-secondary);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.dv-dl-actions { display: flex; align-items: center; gap: 6px; flex: 0 0 auto; flex-wrap: wrap; }
+.dv-dl-dir { margin-top: 2px; word-break: break-all; }
 .dv-body { display: flex; gap: 12px; flex: 1 1 auto; min-height: 0; }
 .dv-list {
   flex: 0 0 320px; min-width: 0; display: flex; flex-direction: column; gap: 4px;
@@ -513,6 +580,89 @@
       }
 
       // ------------------------------------------------------------------
+      // 组件：已下载列表
+      // ------------------------------------------------------------------
+      function DownloadsList({ view, currentVersion, onSwitch, onPurge, onCancelSwitch, switchBusy, purgeArm }) {
+        const t = translateCurrent;
+        const items = Array.isArray(view?.items) ? view.items : [];
+        const rows = [];
+
+        if (view?.pending !== undefined) {
+          rows.push(h('div', { key: 'pending', className: 'dv-banner dv-banner-warn dv-pending' },
+            h('span', null, t('switch.pending', { version: view.pending.version })),
+            h('button', {
+              type: 'button',
+              className: 'dv-btn dv-btn-ghost',
+              onClick: () => { void onCancelSwitch(); },
+            }, t('action.cancelSwitch')),
+          ));
+        }
+        if (view?.applied !== undefined) {
+          rows.push(h('div', { key: 'applied', className: 'dv-banner dv-banner-ok' },
+            t('switch.applied', { version: view.applied.version, date: formatDate(view.applied.at) })));
+        }
+
+        if (items.length === 0) {
+          rows.push(h('div', { key: 'empty', className: 'dv-placeholder' },
+            h('div', null, t('downloads.empty')),
+            h('div', { className: 'dv-placeholder-hint' }, t('downloads.emptyHint')),
+          ));
+        } else {
+          rows.push(h('div', { key: 'rows', className: 'dv-dl-list' }, ...items.map((item) => {
+            const isCurrent = item.current === true || item.version === currentVersion;
+            const actions = [];
+            if (isCurrent) {
+              actions.push(h('span', { key: 'cur', className: 'dv-tag dv-tag-current' }, t('downloads.current')));
+            } else {
+              actions.push(h('button', {
+                key: 'switch',
+                type: 'button',
+                className: 'dv-btn dv-btn-primary',
+                onClick: () => { void onSwitch(item.version); },
+                disabled: switchBusy !== undefined,
+              }, switchBusy === item.version ? t('action.switching') : t('downloads.switch')));
+            }
+            actions.push(h('button', {
+              key: 'purge',
+              type: 'button',
+              className: purgeArm === item.version ? 'dv-btn dv-btn-danger' : 'dv-btn dv-btn-ghost',
+              onClick: () => { void onPurge(item.version); },
+              title: t('action.purge'),
+            }, purgeArm === item.version ? t('action.purgeConfirm', { version: item.version }) : t('downloads.remove')));
+
+            return h('div', { key: item.version, className: 'dv-dl-row' },
+              h('div', { className: 'dv-dl-main' },
+                h('div', { className: 'dv-dl-top' },
+                  h('span', { className: 'dv-version' }, item.version),
+                  h('span', { className: 'dv-meta' }, item.sizeText ?? formatSize(item.size)),
+                ),
+                h('div', { className: 'dv-dl-path', title: item.path }, item.path),
+              ),
+              h('div', { className: 'dv-dl-actions' }, ...actions),
+            );
+          })));
+        }
+
+        return h('div', { className: 'dv-detail dv-downloads' },
+          h('div', { className: 'dv-detail-head' },
+            h('div', { style: { minWidth: 0, flex: '1 1 auto' } },
+              h('div', { className: 'dv-detail-version' }, t('downloads.title')),
+              h('div', { className: 'dv-detail-sub' },
+                h('span', null, t('downloads.total', {
+                  count: view?.total ?? items.length,
+                  size: view?.totalSizeText ?? formatSize(view?.totalSize),
+                })),
+              ),
+            ),
+          ),
+          ...rows,
+          view?.dir === undefined
+            ? null
+            : h('div', { className: 'dv-meta dv-dl-dir' }, `${t('downloads.dir')}：${view.dir}`),
+        );
+      }
+
+      // ------------------------------------------------------------------
       // 组件：面板主体
       // ------------------------------------------------------------------
       function VersionsPage() {
@@ -530,6 +680,11 @@
         const [downloaded, setDownloaded] = useState({});
         const [progress, setProgress] = useState(undefined);
         const [notice, setNotice] = useState(undefined);
+        // 追加在最后，保持前面 hook 顺序不变（冒烟测试按位置注入快照）。
+        const [view, setView] = useState('versions');
+        const [downloads, setDownloads] = useState(undefined);
+        const [switchBusy, setSwitchBusy] = useState(undefined);
+        const [purgeArm, setPurgeArm] = useState(undefined);
         const alive = useRef(true);
 
         useEffect(() => () => { alive.current = false; }, []);
@@ -557,6 +712,24 @@
           void load(false);
           // 只在挂载时拉一次；刷新按钮与下载完成后再拉。
         }, [load]);
+
+        /**
+         * 拉已下载清单（含切换状态）。静默失败：不影响版本列表。
+         * @returns {Promise<object|undefined>} 视图。
+         */
+        const loadDownloads = useCallback(async () => {
+          try {
+            const payload = await apiGet('downloads');
+            if (alive.current) setDownloads(payload);
+            return payload;
+          } catch {
+            return undefined;
+          }
+        }, []);
+
+        useEffect(() => {
+          void loadDownloads();
+        }, [loadDownloads]);
 
         // 选中的版本变了：拉它的更新说明。
         useEffect(() => {
@@ -655,6 +828,7 @@
             if (!alive.current) return;
             setDownloaded((previous) => ({ ...previous, [version]: payload }));
             setNotice({ kind: 'info', text: t('action.downloadedAt', { size: payload.sizeText }) });
+            void loadDownloads();
           } catch (caught) {
             if (alive.current) {
               setNotice({ kind: 'error', text: t('action.downloadFailed', { message: String(caught?.message ?? caught) }) });
@@ -665,17 +839,7 @@
               setProgress(undefined);
             }
           }
-        }, [t]);
-
-        const onInstall = useCallback(async (version) => {
-          setNotice(undefined);
-          try {
-            await apiPost({ op: 'launch', version });
-            setNotice({ kind: 'info', text: t('action.launched') });
-          } catch (caught) {
-            setNotice({ kind: 'error', text: String(caught?.message ?? caught) });
-          }
-        }, [t]);
+        }, [t, loadDownloads]);
 
         const onDiscard = useCallback(async (version) => {
           setNotice(undefined);
@@ -687,10 +851,62 @@
               return next;
             });
             setNotice({ kind: 'info', text: t('action.discarded') });
+            void loadDownloads();
+          } catch (caught) {
+            setNotice({ kind: 'error', text: String(caught?.message ?? caught) });
+          }
+        }, [t, loadDownloads]);
+
+        /** 切换版本：启动已下载安装包对应的官方安装程序。 */
+        const onSwitch = useCallback(async (version) => {
+          if (switchBusy !== undefined) return;
+          setSwitchBusy(version);
+          setNotice(undefined);
+          try {
+            const payload = await apiPost({ op: 'switch', version });
+            if (!alive.current) return;
+            setNotice({ kind: 'info', text: t('action.switched', { version }) });
+            setDownloads((previous) => (previous === undefined
+              ? previous
+              : { ...previous, pending: payload.pending }));
+          } catch (caught) {
+            if (alive.current) {
+              setNotice({ kind: 'error', text: t('action.switchFailed', { message: String(caught?.message ?? caught) }) });
+            }
+          } finally {
+            if (alive.current) setSwitchBusy(undefined);
+          }
+        }, [switchBusy, t]);
+
+        /** 取消待切换标记。 */
+        const onCancelSwitch = useCallback(async () => {
+          setNotice(undefined);
+          try {
+            await apiPost({ op: 'unswitch' });
+            setDownloads((previous) => (previous === undefined ? previous : { ...previous, pending: undefined }));
+            setNotice({ kind: 'info', text: t('action.switchCancelled') });
           } catch (caught) {
             setNotice({ kind: 'error', text: String(caught?.message ?? caught) });
           }
         }, [t]);
+
+        /** 删除某个版本的全部下载（二次确认）。 */
+        const onPurge = useCallback(async (version) => {
+          if (purgeArm !== version) {
+            setPurgeArm(version);
+            setNotice({ kind: 'info', text: t('action.purgeConfirm', { version }) });
+            return;
+          }
+          setPurgeArm(undefined);
+          setNotice(undefined);
+          try {
+            const payload = await apiPost({ op: 'purge', version });
+            setNotice({ kind: 'info', text: t('action.purged', { version, size: payload.freedText }) });
+            await loadDownloads();
+          } catch (caught) {
+            setNotice({ kind: 'error', text: String(caught?.message ?? caught) });
+          }
+        }, [purgeArm, t, loadDownloads]);
 
         // ---------------- 头部 ----------------
         const currentVersion = data?.runtime?.version;
@@ -721,17 +937,45 @@
           onClick: () => setChannel(id),
         }, t(`panel.filter.${id}`)));
 
-        const toolbar = h('div', { className: 'dv-toolbar' },
-          h('div', { className: 'dv-chips' }, ...chips),
+        // 视图切换：版本清单 / 已下载
+        const tabs = h('div', { className: 'dv-chips dv-tabs' },
           h('button', {
             type: 'button',
-            className: 'dv-btn',
-            onClick: onProbe,
-            disabled: probing || rows.length === 0,
-          }, probing ? t('panel.probing') : t('panel.probe')),
+            className: 'dv-chip',
+            'data-active': view === 'versions' ? 'true' : 'false',
+            onClick: () => setView('versions'),
+          }, t('tab.versions')),
+          h('button', {
+            type: 'button',
+            className: 'dv-chip',
+            'data-active': view === 'downloads' ? 'true' : 'false',
+            onClick: () => { setView('downloads'); void loadDownloads(); },
+          }, t('tab.downloads'),
+          Array.isArray(downloads?.items) && downloads.items.length > 0
+            ? h('span', { className: 'dv-tab-count' }, String(downloads.items.length))
+            : null),
+        );
+
+        const toolbar = h('div', { className: 'dv-toolbar' },
+          tabs,
+          h('div', { className: 'dv-spacer' }),
+          view === 'versions' ? h('div', { className: 'dv-chips' }, ...chips) : null,
+          view === 'versions'
+            ? h('button', {
+              type: 'button',
+              className: 'dv-btn',
+              onClick: onProbe,
+              disabled: probing || rows.length === 0,
+            }, probing ? t('panel.probing') : t('panel.probe'))
+            : null,
           h('div', { className: 'dv-spacer' }),
           h('div', { className: 'dv-meta' },
-            t('panel.count', { shown: rows.length, total: data?.total ?? 0 }),
+            view === 'versions'
+              ? t('panel.count', { shown: rows.length, total: data?.total ?? 0 })
+              : t('downloads.count', {
+                count: downloads?.total ?? 0,
+                size: downloads?.totalSizeText ?? '—',
+              }),
             platform === '' ? '' : ` · ${t('panel.platform', { platform })}`),
         );
 
@@ -783,10 +1027,16 @@
             : language === 'en' ? release.en : release.zh;
 
           const installerState = row?.installer ?? 'unknown';
-          const alreadyDownloaded = downloaded[selected] !== undefined;
+          // 已下载判定以宿主扫描的下载目录为准（页面刷新后也能认出来），
+          // 本次会话里刚下载成功的再用 downloaded 兜一层。
+          const localEntry = Array.isArray(downloads?.items)
+            ? downloads.items.find((item) => item.version === selected)
+            : undefined;
+          const alreadyDownloaded = localEntry !== undefined || downloaded[selected] !== undefined;
+          const isCurrent = selected === (data?.runtime?.version ?? currentVersion);
           const actionButtons = [];
 
-          if (installerState === 'missing') {
+          if (installerState === 'missing' && !alreadyDownloaded) {
             actionButtons.push(h('div', { key: 'no', className: 'dv-meta' },
               t('action.noInstaller', { platform: platform || data?.runtime?.platform || '' }),
               h('div', { className: 'dv-placeholder-hint' }, t('action.noInstallerHint')),
@@ -807,12 +1057,17 @@
                 percent: progress?.percent !== undefined ? `${Math.round(progress.percent)}%` : '…',
               }))));
           } else if (alreadyDownloaded) {
-            actionButtons.push(h('button', {
-              key: 'install',
-              type: 'button',
-              className: 'dv-btn dv-btn-primary',
-              onClick: () => { void onInstall(selected); },
-            }, h('span', null, t('action.install'))));
+            if (isCurrent) {
+              actionButtons.push(h('span', { key: 'same', className: 'dv-meta' }, t('action.switchSame')));
+            } else {
+              actionButtons.push(h('button', {
+                key: 'switch',
+                type: 'button',
+                className: 'dv-btn dv-btn-primary',
+                onClick: () => { void onSwitch(selected); },
+                disabled: switchBusy !== undefined,
+              }, h('span', null, switchBusy === selected ? t('action.switching') : t('action.switch'))));
+            }
             actionButtons.push(h('button', {
               key: 'again',
               type: 'button',
@@ -923,11 +1178,25 @@
           data?.runtime?.channel === undefined ? null : h('span', null, `${t('panel.current')} · ${data.runtime.channel}`),
         );
 
+        // ---------------- 主体：版本清单 / 已下载 ----------------
+        const body = view === 'downloads'
+          ? h('div', { className: 'dv-body dv-body-single' },
+            h(DownloadsList, {
+              view: downloads,
+              currentVersion,
+              onSwitch,
+              onPurge,
+              onCancelSwitch,
+              switchBusy,
+              purgeArm,
+            }))
+          : h('div', { className: 'dv-body' }, list, detail);
+
         return h('div', { className: 'dv-root' },
           header,
           toolbar,
           ...banners,
-          h('div', { className: 'dv-body' }, list, detail),
+          body,
           footer,
         );
       }
@@ -974,6 +1243,7 @@
           VersionsPage,
           VersionRow,
           ChangelogBody,
+          DownloadsList,
           VersionsIcon,
           formatDate,
           formatSize,

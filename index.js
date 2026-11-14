@@ -1,9 +1,9 @@
 /**
  * dsh-versions — Host half.
  *
- * 职责：给「DSH 版本历史」面板和三个 Agent 工具提供数据。
+ * 职责：给「DSH 版本历史」面板和五个 Agent 工具提供数据。
  *
- * 数据面三件事：
+ * 数据面四件事：
  *
  * 1. **版本清单**：npm registry 上 `@deepseek-ai/dsh` 的完整 packument（44 个版本
  *    与发布时间），落盘缓存 30 分钟。
@@ -12,6 +12,9 @@
  * 3. **官方安装包**：`download.deepseek.com/dsh-desk/bin/<平台>/` 的 HEAD 探测与
  *    下载。用户明确说过「也可以不从 npm 下载」，所以切换版本走官方安装包这条路：
  *    下载 → 交给用户双击，不碰 autoUpdater、不手改 settings.json。
+ * 4. **已下载版本与切换**：扫 `downloads/<version>/` 得到本地已有安装包，切换时
+ *    启动对应版本的官方安装程序并把这次意图记在 `switch-state.json`（见
+ *    lib/switch.js），生效后自动确认。
  *
  * 面板走回环路由 `/dsh-versions/api`（见 lib/routes.js），Agent 工具走
  * `dsh_versions_*`（见 lib/tools.js），两者共用同一份 Catalog / Downloader。
@@ -26,6 +29,7 @@ import { Downloader } from './lib/installer.js';
 import { defaultDataDir } from './lib/paths.js';
 import { mountRoutes } from './lib/routes.js';
 import { detectCurrentVersion, updateChannel } from './lib/runtime.js';
+import { Switcher, downloadsView } from './lib/switch.js';
 import { createVersionTools } from './lib/tools.js';
 import { compareVersions } from './lib/version.js';
 
@@ -47,6 +51,7 @@ export function apply(ctx, rawConfig) {
 
   const catalog = new Catalog({ dir: dataDir, logger, cacheMinutes: config.cacheMinutes });
   const downloader = new Downloader({ dir: `${dataDir}/downloads`, logger });
+  const switcher = new Switcher({ downloader, dir: dataDir, logger });
 
   /** 运行时信息缓存（版本探测会读 asar，别每次请求都读）。 */
   let runtimeCache;
@@ -87,13 +92,16 @@ export function apply(ctx, rawConfig) {
       if (probe.available !== true) return { ok: false, code: 'NO_INSTALLER' };
       return downloader.start({ version, url: probe.url, expectedSize: probe.size });
     },
+    downloads: () => downloadsView({ downloader, switcher, currentVersion: runtime().version }),
+    switchTo: (version) => switcher.request(version, runtime().version),
+    purge: (version) => downloader.removeVersion(version),
   };
 
   // ------------------------------------------------------------------
   // 1. 面板 API
   // ------------------------------------------------------------------
   ctx.inject(['webServer'], (scoped) => {
-    mountRoutes(scoped, { catalog, downloader, runtime, logger });
+    mountRoutes(scoped, { catalog, downloader, switcher, runtime, logger });
   });
 
   // ------------------------------------------------------------------

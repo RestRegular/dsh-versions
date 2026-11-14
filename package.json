@@ -1,7 +1,7 @@
 {
   "name": "@restregular/dsh-versions",
-  "version": "0.1.0",
-  "description": "DSH 版本历史与更新说明面板：列出 DeepSeek Harness 桌面版的全部历史版本、每个版本改了什么，并能一键下载对应版本的官方安装包来切换版本（不走 npm，直接用官方分发的安装程序）。A version history and changelog panel for DeepSeek Harness: browse every desktop release, read what changed, and download the official installer for the version you want to switch to.",
+  "version": "0.2.0",
+  "description": "DSH 版本历史与更新说明面板：列出 DeepSeek Harness 桌面版的全部历史版本、每个版本改了什么，下载对应版本的官方安装包，并管理已下载的版本随时切换回去（不走 npm，直接用官方分发的安装程序）。A version history and changelog panel for DeepSeek Harness: browse every desktop release, read what changed, download official installers, and switch between the versions you already have.",
   "keywords": [
     "dsh",
     "dsh-plugin",
@@ -10,7 +10,10 @@
     "changelog",
     "release-notes",
     "upgrade",
-    "downgrade"
+    "downgrade",
+    "switch",
+    "installer",
+    "rollback"
   ],
   "type": "module",
   "main": "index.js",
@@ -62,7 +65,9 @@
     "node": ">=22.13.0"
   },
   "scripts": {
-    "test": "node test/smoke.mjs"
+    "test": "node test/smoke.mjs && node test/client.mjs",
+    "test:host": "node test/smoke.mjs",
+    "test:client": "node test/client.mjs"
   },
   "publishConfig": {
     "access": "public",
